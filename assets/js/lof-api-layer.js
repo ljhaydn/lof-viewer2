@@ -73,51 +73,108 @@
       }
     },
 
-    _normalizeShowDetails(raw) {
+        _normalizeShowDetails(raw) {
+      // raw is the RF showDetails JSON:
+      // { preferences, sequences, sequenceGroups, requests, votes, playingNow, playingNext, playingNextFromSchedule }
+
+      const sequences = Array.isArray(raw.sequences) ? raw.sequences : [];
+
+      // Helper: find a sequence by its "name" (that's what playingNow/Next use)
+      const findSeqByName = (name) =>
+        !name ? null : sequences.find((s) => s && s.name === name) || null;
+
+      const nowSeq = findSeqByName(raw.playingNow);
+      // If RF provides playingNext, use that; otherwise fall back to schedule-based next
+      const nextName =
+        raw.playingNext && raw.playingNext !== ''
+          ? raw.playingNext
+          : raw.playingNextFromSchedule || '';
+      const nextSeq = findSeqByName(nextName);
+
+      // Normalize a sequence into our internal "song" shape
+      const toSong = (seq) =>
+        !seq
+          ? null
+          : {
+              songId: seq.name, // RF "name" is the unique ID
+              title: seq.displayName || seq.name || 'Untitled',
+              artist: seq.artist || null,
+              duration: seq.duration || 0,
+              // We don't get per-song elapsed time from this endpoint
+              elapsedSeconds: 0,
+              category: seq.category || 'general',
+              visible: seq.visible !== false,
+              active: seq.active !== false,
+            };
+
+      const nowPlaying = toSong(nowSeq);
+      const upNext = toSong(nextSeq);
+
+      // Requests queue – RF "requests" array may be empty when nobody has queued anything yet.
+      const queue = (Array.isArray(raw.requests) ? raw.requests : []).map(
+        (req, index) => ({
+          // RF schema varies by version; we try a few common keys
+          songId:
+            req.sequenceName ||
+            req.sequence ||
+            req.sequenceId ||
+            req.name ||
+            null,
+          title:
+            req.displayName ||
+            req.sequenceDisplayName ||
+            req.title ||
+            'Requested song',
+          requestedBy:
+            req.requestedBy ||
+            req.requesterName ||
+            req.visitor_name ||
+            'Guest',
+          position: req.position ?? index + 1,
+        })
+      );
+
+      // Available songs – filter visible + active sequences
+      const availableSongs = sequences
+        .filter((s) => s && s.visible !== false && s.active !== false)
+        .map((s) => ({
+          songId: s.name,
+          title: s.displayName || s.name || 'Untitled',
+          artist: s.artist || null,
+          duration: s.duration || 0,
+          category: s.category || 'general',
+          isAvailable: true,
+          cooldownUntil: null,
+        }));
+
+      const prefs = raw.preferences || {};
+
+      // Very simple show status heuristic for now
+      const showStatus =
+        sequences.length === 0
+          ? 'idle'
+          : prefs.viewerControlEnabled === false
+          ? 'running_no_control'
+          : 'active';
+
+      const requestsEnabled = !!prefs.viewerControlEnabled;
+
       return {
         success: true,
         timestamp: Date.now(),
         data: {
-          nowPlaying: raw.now_playing
-            ? {
-                songId: raw.now_playing.id,
-                title: raw.now_playing.title,
-                artist: raw.now_playing.artist,
-                duration: raw.now_playing.duration_seconds || 0,
-                elapsedSeconds: raw.now_playing.elapsed || 0,
-                category: raw.now_playing.category || 'general',
-              }
-            : null,
-          upNext: raw.up_next
-            ? {
-                songId: raw.up_next.id,
-                title: raw.up_next.title,
-                artist: raw.up_next.artist,
-                category: raw.up_next.category || 'general',
-              }
-            : null,
-          queue: (raw.queue || []).map((q, index) => ({
-            songId: q.id,
-            title: q.title,
-            requestedBy: q.visitor_name || 'Anonymous',
-            position: q.position ?? index + 1,
-          })),
-          availableSongs: (raw.available_songs || []).map((s) => ({
-            songId: s.id,
-            title: s.title,
-            artist: s.artist,
-            duration: s.duration_seconds || 0,
-            category: s.category || 'general',
-            isAvailable: s.available !== false,
-            cooldownUntil: s.cooldown_until || null,
-          })),
-          showStatus: this._normalizeStatus(raw.show_status),
-          requestsEnabled: raw.requests_enabled !== false,
+          nowPlaying,
+          upNext,
+          queue,
+          availableSongs,
+          showStatus,
+          requestsEnabled,
         },
         error: null,
         errorCode: null,
       };
     },
+
 
     _normalizeRequestResponse(raw) {
       if (!raw || raw.success === false) {
