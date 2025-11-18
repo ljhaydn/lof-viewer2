@@ -140,13 +140,12 @@
 
       const isDataFresh = now - state.lastRFUpdate < 30000;
 
-      const canMakeRequest =
-        state.currentState === 'ACTIVE' &&
-        (!state.recentRequest || now - state.recentRequest.timestamp > 300000);
+      // FIXED: Removed global cooldown check - cooldowns are now per-song in InteractionLayer
+      // This matches v1 behavior where users can request different songs with only per-song cooldowns
+      const canMakeRequest = state.currentState === 'ACTIVE';
 
-      const cooldownRemaining = state.recentRequest
-        ? Math.max(0, 300000 - (now - state.recentRequest.timestamp))
-        : 0;
+      // FIXED: This is no longer used for blocking requests, kept for display purposes only
+      const cooldownRemaining = 0;
 
       return {
         shouldShowRequestButton,

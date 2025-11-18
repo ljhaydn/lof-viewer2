@@ -4,7 +4,8 @@
 
   const InteractionLayer = {
     _pollHandle: null,
-    _cooldowns: new Map(),
+    // FIXED: Changed to per-song cooldown map like v1 viewer
+    _songCooldowns: new Map(),
     _actionInProgress: false,
 
     init() {
@@ -40,19 +41,27 @@
       }
     },
 
+    /**
+     * FIXED: Changed to per-song cooldown matching v1 viewer behavior
+     * - v1 had 15-second per-song cooldown
+     * - v2 incorrectly had 5-minute global cooldown
+     */
     async handleSongRequest(songId) {
       if (this._actionInProgress) return;
 
-      const state = StateLayer.getState();
-      const derived = StateLayer.getDerivedState();
-
-      if (!derived.canMakeRequest) {
+      // FIXED: Check per-song cooldown instead of global
+      const now = Date.now();
+      const cooldownTime = this._songCooldowns.get(songId);
+      if (cooldownTime && now < cooldownTime) {
+        const remainingSeconds = Math.ceil((cooldownTime - now) / 1000);
         ViewLayer.showError({
-          code: 'COOLDOWN',
-          context: { remainingSeconds: Math.ceil(derived.cooldownRemaining / 1000) },
+          code: 'SONG_COOLDOWN',
+          context: { remainingSeconds, songId },
         });
         return;
       }
+
+      const state = StateLayer.getState();
 
       this._actionInProgress = true;
       ViewLayer.showLoading(ContentLayer.getMessage('loading', 'request'));
@@ -68,18 +77,19 @@
                 songId,
                 title: songMeta?.title || 'Unknown Song',
                 timestamp: Date.now(),
-                queuePosition: res.data?.position || 0,
+                queuePosition: res.data?.queuePosition || 0,
               },
               interactionCount: state.interactionCount + 1,
             },
             'SONG_REQUESTED'
           );
 
-          this._setCooldown('request', 300000);
+          // FIXED: Set per-song cooldown (15 seconds like v1)
+          this._songCooldowns.set(songId, now + 15000);
 
           ViewLayer.showSuccess(
             ContentLayer.getMessage('success', 'request', {
-              position: res.data?.position || '?',
+              position: res.data?.queuePosition || '?',
             })
           );
 
@@ -87,7 +97,7 @@
           this._logTelemetry({
             event: 'song_request',
             songId,
-            queuePosition: res.data?.position,
+            queuePosition: res.data?.queuePosition,
             timestamp: Date.now(),
           });
         } else {
@@ -126,19 +136,20 @@
                 songId: randomSong.songId,
                 title: randomSong.title,
                 timestamp: Date.now(),
-                queuePosition: res.data?.position || 0,
+                queuePosition: res.data?.queuePosition || 0,
               },
               interactionCount: state.interactionCount + 1,
             },
             'SURPRISE_ME'
           );
 
-          this._setCooldown('request', 300000);
+          // FIXED: Also set per-song cooldown for Surprise Me selections
+          this._songCooldowns.set(randomSong.songId, Date.now() + 15000);
 
           ViewLayer.showSuccess(
             ContentLayer.getMessage('success', 'surprise', {
               title: randomSong.title,
-              position: res.data?.position || '?',
+              position: res.data?.queuePosition || '?',
             })
           );
 
@@ -246,10 +257,6 @@
         },
         'POLL_UPDATE'
       );
-    },
-
-    _setCooldown(key, durationMs) {
-      this._cooldowns.set(key, Date.now() + durationMs);
     },
 
     _restoreSession() {
