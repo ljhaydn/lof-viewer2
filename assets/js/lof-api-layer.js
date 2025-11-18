@@ -5,10 +5,10 @@
   // ------------------------------
   // RFClient – talks to WP REST proxy (JWT lives in PHP)
   // ------------------------------
- const RFClient = {
-  _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
+  const RFClient = {
+    _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
-     async getShowDetails() {
+    async getShowDetails() {
       if (!this._baseURL) {
         return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
       }
@@ -64,8 +64,6 @@
       }
     },
 
-
-
     async requestSong(songId, visitorId) {
       if (!this._baseURL) {
         return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
@@ -84,15 +82,20 @@
           throw new Error(`HTTP ${res.status}`);
         }
 
-        const raw = await res.json();
-        return this._normalizeRequestResponse(raw);
+        const json = await res.json().catch((err) => {
+          console.error('[RFClient] requestSong JSON parse error', err);
+          return null;
+        });
+
+        console.debug('[RFClient] requestSong raw JSON', json);
+        return this._normalizeRequestResponse(json);
       } catch (err) {
         console.error('[RFClient] requestSong failed', err);
-        return this._error('NETWORK_ERROR', err.message);
+        return this._error('NETWORK_ERROR', err.message || String(err));
       }
     },
 
-        _normalizeShowDetails(raw) {
+    _normalizeShowDetails(raw) {
       // raw is the RF showDetails JSON:
       // { preferences, sequences, sequenceGroups, requests, votes, playingNow, playingNext, playingNextFromSchedule }
 
@@ -103,6 +106,7 @@
         !name ? null : sequences.find((s) => s && s.name === name) || null;
 
       const nowSeq = findSeqByName(raw.playingNow);
+
       // If RF provides playingNext, use that; otherwise fall back to schedule-based next
       const nextName =
         raw.playingNext && raw.playingNext !== ''
@@ -194,41 +198,23 @@
       };
     },
 
+    _normalizeRequestResponse(json) {
+      if (!json) {
+        return this._error('RF_REQUEST_ERROR', 'Empty response from RF');
+      }
 
-    _normalizeRequestResponse(raw) {
-      if (!raw || raw.success === false) {
-        return {
-          success: false,
-          timestamp: Date.now(),
-          data: null,
-          error: raw?.error || 'Unknown error',
-          errorCode: raw?.error_code || 'UNKNOWN',
-        };
+      // This may need refinement once we inspect RF's POST response shape.
+      if (json.success === false) {
+        return this._error('RF_REQUEST_ERROR', json.message || 'Request failed');
       }
 
       return {
         success: true,
         timestamp: Date.now(),
-        data: {
-          requestId: raw.request_id || '',
-          queuePosition: raw.queue_position ?? 0,
-          estimatedWaitMinutes: raw.estimated_wait_minutes ?? 0,
-        },
+        data: json,
         error: null,
         errorCode: null,
       };
-    },
-
-    _normalizeStatus(status) {
-      const map = {
-        running: 'active',
-        active: 'active',
-        paused: 'paused',
-        stopped: 'ended',
-        ended: 'ended',
-        scheduled: 'scheduled',
-      };
-      return map[status] || 'ended';
     },
 
     _error(code, message) {
@@ -243,29 +229,29 @@
   };
 
   // ------------------------------
-  // FPPClient – talks to FPP (direct or via your own proxy)
+  // FPPClient – talks to FPP (via your own WP proxy)
   // ------------------------------
   const FPPClient = {
     _baseURL: window.LOF_CONFIG?.fppBaseUrl || '',
 
-  async getStatus() {
-    if (!this._baseURL) {
-      return this._error('CONFIG_ERROR', 'FPP base URL not configured');
-    }
+    async getStatus() {
+      if (!this._baseURL) {
+        return this._error('CONFIG_ERROR', 'FPP base URL not configured');
+      }
 
-    // Call the WP proxy: /wp-json/lof-viewer/v1/fpp/status
-    const url = `${this._baseURL}/status`;
+      // Call the WP proxy: /wp-json/lof-viewer/v1/fpp/status
+      const url = `${this._baseURL}/status`;
 
-    try {
-      const res = await fetch(url, { method: 'GET' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
-      return this._normalizeStatus(raw);
-    } catch (err) {
-      console.error('[FPPClient] getStatus failed', err);
-      return this._error('NETWORK_ERROR', err.message);
-    }
-  },
+      try {
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = await res.json();
+        return this._normalizeStatus(raw);
+      } catch (err) {
+        console.error('[FPPClient] getStatus failed', err);
+        return this._error('NETWORK_ERROR', err.message);
+      }
+    },
 
     _normalizeStatus(raw) {
       return {
@@ -294,93 +280,10 @@
   };
 
   // ------------------------------
-  // LOFClient – talks to your own LOF endpoints
+  // Export into global namespace for other layers
   // ------------------------------
-  const LOFClient = {
-    _baseURL: window.LOF_CONFIG?.lofBaseUrl || '',
-
-    async getConfig() {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'LOF base URL not configured');
-      }
-
-      const url = `${this._baseURL}/config`;
-      try {
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const raw = await res.json();
-        return this._normalizeConfig(raw);
-      } catch (err) {
-        console.error('[LOFClient] getConfig failed', err);
-        return this._error('NETWORK_ERROR', err.message);
-      }
-    },
-
-    async toggleSpeakerOn(enabled) {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'LOF base URL not configured');
-      }
-
-      const url = `${this._baseURL}/speaker`;
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const raw = await res.json();
-        return {
-          success: !!raw.success,
-          timestamp: Date.now(),
-          data: raw,
-          error: raw.success ? null : raw.error || 'Speaker failed',
-          errorCode: raw.success ? null : raw.error_code || 'SPEAKER_FAILED',
-        };
-      } catch (err) {
-        console.error('[LOFClient] toggleSpeakerOn failed', err);
-        return this._error('NETWORK_ERROR', err.message);
-      }
-    },
-
-    async logTelemetry(eventData) {
-      try {
-        if (!this._baseURL) return;
-        const url = `${this._baseURL}/telemetry`;
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(eventData),
-        });
-      } catch (err) {
-        // telemetry failures are non-fatal
-        console.warn('[LOFClient] telemetry failed', err);
-      }
-    },
-
-    _normalizeConfig(raw) {
-      return {
-        success: true,
-        timestamp: Date.now(),
-        data: raw,
-        error: null,
-        errorCode: null,
-      };
-    },
-
-    _error(code, message) {
-      return {
-        success: false,
-        timestamp: Date.now(),
-        data: null,
-        error: message,
-        errorCode: code,
-      };
-    },
+  window.LOF_API = {
+    RFClient,
+    FPPClient,
   };
-
-  // Expose globals
-  window.RFClient = RFClient;
-  window.FPPClient = FPPClient;
-  window.LOFClient = LOFClient;
 })(window);
