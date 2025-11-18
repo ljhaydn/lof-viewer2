@@ -61,7 +61,7 @@
     /**
      * Request a song via WP REST proxy.
      *
-     * @param {string} songId    Remote Falcon sequence name (e.g. "GhostbustersThemeFallOutBoy101825")
+     * @param {string} songId      Remote Falcon sequence name (e.g. "GhostbustersThemeFallOutBoy101825")
      * @param {string|null} visitorId  Optional visitor identifier
      */
     async requestSong(songId, visitorId) {
@@ -101,19 +101,19 @@
       }
     },
 
+    /**
+     * Normalize Remote Falcon showDetails into the Viewer v2 shape.
+     * This is where we decide:
+     * - nowPlaying       → from RF.playingNow
+     * - upNext           → FIRST: head of RF.requests queue, ELSE: playingNext / playingNextFromSchedule
+     * - queue            → mapped RF.requests
+     * - availableSongs   → visible + active sequences
+     */
     _normalizeShowDetails(raw) {
       const sequences = Array.isArray(raw.sequences) ? raw.sequences : [];
 
       const findSeqByName = (name) =>
         !name ? null : sequences.find((s) => s && s.name === name) || null;
-
-      const nowSeq = findSeqByName(raw.playingNow);
-
-      const nextName =
-        raw.playingNext && raw.playingNext !== ''
-          ? raw.playingNext
-          : raw.playingNextFromSchedule || '';
-      const nextSeq = findSeqByName(nextName);
 
       const toSong = (seq) =>
         !seq
@@ -123,16 +123,16 @@
               title: seq.displayName || seq.name || 'Untitled',
               artist: seq.artist || null,
               duration: seq.duration || 0,
-              elapsedSeconds: 0,
               category: seq.category || 'general',
               visible: seq.visible !== false,
               active: seq.active !== false,
+              isAvailable: seq.visible !== false && seq.active !== false,
+              cooldownUntil: null,
             };
 
-      const nowPlaying = toSong(nowSeq);
-      const upNext = toSong(nextSeq);
-
-      const queue = (Array.isArray(raw.requests) ? raw.requests : []).map((req, index) => ({
+      // ----- Queue -----
+      const rawRequests = Array.isArray(raw.requests) ? raw.requests : [];
+      const queue = rawRequests.map((req, index) => ({
         songId:
           req.sequenceName || req.sequence || req.sequenceId || req.name || null,
         title:
@@ -148,6 +148,44 @@
         position: req.position ?? index + 1,
       }));
 
+      // ----- Now Playing -----
+      const nowSeq = findSeqByName(raw.playingNow);
+      const nowPlaying = toSong(nowSeq);
+
+      // ----- Up Next -----
+      let upNext = null;
+
+      if (queue.length > 0) {
+        // Prefer the head of the RF request queue as "Up Next"
+        const q0 = queue[0];
+        const queuedSeq = q0.songId ? findSeqByName(q0.songId) : null;
+        upNext = toSong(queuedSeq);
+
+        // Fallback if we can't resolve the sequence metadata
+        if (!upNext && q0.songId) {
+          upNext = {
+            songId: q0.songId,
+            title: q0.title || 'Requested song',
+            artist: null,
+            duration: 0,
+            category: 'general',
+            visible: true,
+            active: true,
+            isAvailable: true,
+            cooldownUntil: null,
+          };
+        }
+      } else {
+        // No queue: fall back to RF's notion of what is next in the schedule
+        const nextName =
+          raw.playingNext && raw.playingNext !== ''
+            ? raw.playingNext
+            : raw.playingNextFromSchedule || '';
+        const nextSeq = findSeqByName(nextName);
+        upNext = toSong(nextSeq);
+      }
+
+      // ----- Available songs -----
       const availableSongs = sequences
         .filter((s) => s && s.visible !== false && s.active !== false)
         .map((s) => ({
