@@ -2,7 +2,7 @@
 /**
  * REST proxy for Lights on Falcon Viewer v2
  * - Proxies Remote Falcon External API via JWT/Bearer token
- * - Proxies FPP getFPPstatus via WP so the browser never hits the LAN directly
+ * - Proxies FPP /api/fppd/status via WP so the browser never hits the LAN directly
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -241,8 +241,8 @@ class LOF_Viewer2_REST {
 
     /**
      * GET /wp-json/lof-viewer/v1/fpp/status
-     * Proxy to local FPP legacy JSON endpoint:
-     *   http://10.9.7.102/fppjson.php?command=getFPPstatus
+     * Proxy to local FPP API endpoint:
+     *   http://10.9.7.102/api/fppd/status
      *
      * We return 200 JSON even on error so debugging stays easy.
      */
@@ -253,8 +253,8 @@ class LOF_Viewer2_REST {
         }
 
         $base       = untrailingslashit( trim( $base ) );
-        // ✅ Correct legacy endpoint for FPP 9.x:
-        $remote_url = $base . '/fppjson.php?command=getFPPstatus';
+        // ✅ Correct FPP API endpoint
+        $remote_url = $base . '/api/fppd/status';
 
         $response = wp_remote_get(
             $remote_url,
