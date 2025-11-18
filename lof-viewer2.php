@@ -10,16 +10,10 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/**
- * Autoload or require our REST class
- */
+// REST proxy
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lof-viewer2-rest.php';
 
-/**
- * Init the REST proxy hooks.
- */
 add_action( 'plugins_loaded', 'lof_viewer2_init' );
-
 function lof_viewer2_init() {
     LOF_Viewer2_REST::init();
 }
@@ -34,16 +28,14 @@ function lof_viewer2_enqueue_assets() {
 
     global $post;
 
-    // Only load on pages that actually use the viewer shortcode
+    // Only load on pages using the shortcode
     if ( ! has_shortcode( $post->post_content, 'lof_viewer_v2' ) ) {
         return;
     }
 
     $plugin_url = plugin_dir_url( __FILE__ );
 
-    // --- JS microframework layers in dependency order ---
-
-    // 1) API layer: RF + FPP clients
+    // 1) API layer
     wp_enqueue_script(
         'lof-viewer2-api',
         $plugin_url . 'assets/js/lof-api-layer.js',
@@ -52,7 +44,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 2) State layer: central store
+    // 2) State layer
     wp_enqueue_script(
         'lof-viewer2-state',
         $plugin_url . 'assets/js/lof-state-layer.js',
@@ -61,7 +53,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 3) Theme layer: theming + derived state
+    // 3) Theme layer
     wp_enqueue_script(
         'lof-viewer2-theme',
         $plugin_url . 'assets/js/lof-theme-layer.js',
@@ -70,7 +62,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 4) Content layer: copy + labels (used by ViewLayer)
+    // 4) Content layer
     wp_enqueue_script(
         'lof-viewer2-content',
         $plugin_url . 'assets/js/lof-content-layer.js',
@@ -79,7 +71,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 5) View layer: DOM rendering (depends on ContentLayer)
+    // 5) View layer
     wp_enqueue_script(
         'lof-viewer2-view',
         $plugin_url . 'assets/js/lof-view-layer.js',
@@ -88,7 +80,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 6) Interaction layer: wiring user events, calls RF/FPP + ViewLayer
+    // 6) Interaction layer
     wp_enqueue_script(
         'lof-viewer2-interaction',
         $plugin_url . 'assets/js/lof-interaction-layer.js',
@@ -97,7 +89,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // 7) Init: bootstraps the whole viewer
+    // 7) Init
     wp_enqueue_script(
         'lof-viewer2-init',
         $plugin_url . 'assets/js/lof-init.js',
@@ -106,7 +98,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // Styles (viewer skin)
+    // Styles
     wp_enqueue_style(
         'lof-viewer2-style',
         $plugin_url . 'assets/css/lof-base.css',
@@ -114,13 +106,13 @@ function lof_viewer2_enqueue_assets() {
         '0.1.0'
     );
 
-    // --- LOF_CONFIG passed from PHP into JS ---
+    // --- LOF_CONFIG from PHP into JS ---
 
-    $theme = 'default'; // can be made configurable later
+    $theme = 'christmas'; // or default, configurable later
 
-    $rf_proxy_base = rest_url( 'lof-viewer/v1' );      // RF proxy namespace
-    $lof_base      = rest_url( 'lof/v1' );             // existing LOF endpoints (if/when used)
-    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );  // FPP proxy namespace
+    $rf_proxy_base = rest_url( 'lof-viewer/v1' );
+    $lof_base      = rest_url( 'lof/v1' );
+    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );
 
     $config = array(
         'rfProxyBaseUrl'   => untrailingslashit( $rf_proxy_base ),
@@ -134,22 +126,7 @@ function lof_viewer2_enqueue_assets() {
             'fppDebounceMs'     => 0,
             'connectionTimeout' => 10000,
         ),
-        'copy'             => array(
-            'states' => array(
-                'ACTIVE'   => array(
-                    'headline' => 'Let’s get lit ✨',
-                    'body'     => 'Pick a song, watch the house dance, and keep an eye on the queue.',
-                ),
-                'DEGRADED' => array(
-                    'headline' => 'Connection wobbling like Rudolph’s nose',
-                    'body'     => 'Limited connectivity – things may flicker or take a bit longer.',
-                ),
-                'OFFLINE'  => array(
-                    'headline' => 'The show is taking a power nap',
-                    'body'     => 'Check back soon – we’re probably rebooting something or adding more chaos.',
-                ),
-            ),
-        ),
+        'copy'             => array(), // using ContentLayer defaults
         'lofInitialConfig' => array(
             'features' => array(
                 'requestsEnabled'       => true,
@@ -165,13 +142,72 @@ function lof_viewer2_enqueue_assets() {
 add_action( 'wp_enqueue_scripts', 'lof_viewer2_enqueue_assets' );
 
 /**
- * Shortcode to render the viewer root container.
+ * Shortcode: renders the viewer shell that ViewLayer expects.
  */
 function lof_viewer2_shortcode() {
     ob_start();
     ?>
-    <div id="lof-viewer-v2-root" class="lof-viewer-v2-root">
-        <!-- Viewer v2 microframework will hydrate this container -->
+    <div id="lof-viewer-v2-root" class="lof-viewer-shell lof-viewer lof-state--loading">
+        <!-- STATUS PANEL -->
+        <section class="lof-status" data-lof="status-panel">
+            <div class="lof-status-indicator-wrapper">
+                <span class="lof-state-indicator lof-state--loading" data-lof="state-indicator"></span>
+            </div>
+            <div class="lof-status-copy">
+                <div class="lof-status-headline" data-lof="status-text">
+                    Connecting to the light show...
+                </div>
+                <div class="lof-status-warning" data-lof="connection-warning" style="display:none;"></div>
+            </div>
+        </section>
+
+        <!-- NOW / NEXT -->
+        <section class="lof-now-next">
+            <div class="lof-now">
+                <h2 class="lof-section-title">Now Playing</h2>
+                <div class="lof-track">
+                    <div class="lof-track-title" data-lof="now-title">Intermission</div>
+                    <div class="lof-track-artist" data-lof="now-artist"></div>
+                </div>
+            </div>
+            <div class="lof-next">
+                <h3 class="lof-section-subtitle">Up Next</h3>
+                <div class="lof-track">
+                    <div class="lof-track-title" data-lof="next-title">Tuning the lights…</div>
+                    <div class="lof-track-artist" data-lof="next-artist"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ACTIONS -->
+        <section class="lof-actions">
+            <button class="lof-button" type="button" data-lof="surprise-me">
+                Surprise Me!
+            </button>
+            <button class="lof-button lof-button--speaker" type="button" data-lof="speaker-toggle">
+                <span data-lof="speaker-label">Listen on the block</span>
+            </button>
+        </section>
+        <p class="lof-speaker-helper" data-lof="speaker-helper">
+            Tap to play the speakers out front when the show is running.
+        </p>
+
+        <!-- SONG GRID -->
+        <section class="lof-grid-section">
+            <h2 class="lof-section-title">Pick a song</h2>
+            <div class="lof-grid" data-lof="song-grid">
+                <!-- Tiles rendered by ViewLayer.renderSongGrid -->
+            </div>
+        </section>
+
+        <!-- QUEUE -->
+        <section class="lof-queue-section" data-lof="queue" style="display:none;">
+            <h3 class="lof-section-subtitle">In the queue</h3>
+            <ul class="lof-queue-list" data-lof="queue-list"></ul>
+        </section>
+
+        <!-- MESSAGES / TOASTS -->
+        <div class="lof-messages" data-lof="messages"></div>
     </div>
     <?php
     return ob_get_clean();
