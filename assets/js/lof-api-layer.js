@@ -208,7 +208,7 @@
   // FPPClient – talks to FPP (via your own WP proxy)
   // ------------------------------
   const FPPClient = {
-    _baseURL: window.LOF_CONFIG?.fppBaseUrl || '',
+    _baseURL: window.LOF_CONFIG?.fppBaseUrl || '/wp-json/lof-viewer/v1/fpp',
 
     async getStatus() {
       if (!this._baseURL) {
