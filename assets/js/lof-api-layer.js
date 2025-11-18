@@ -8,58 +8,61 @@
  const RFClient = {
   _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
-      async getShowDetails() {
-  if (!this._baseURL) {
-    return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
-  }
+     async getShowDetails() {
+      if (!this._baseURL) {
+        return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
+      }
 
-  const url = `${this._baseURL}/show`;
+      // We call our WP REST adapter, not RF directly.
+      const url = `${this._baseURL}/show`;
 
-  try {
-    console.debug('[RFClient] fetching showDetails from', url);
+      try {
+        console.debug('[RFClient] fetching showDetails from', url);
 
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-    });
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+          },
+        });
 
-    console.debug('[RFClient] HTTP status', res.status);
+        console.debug('[RFClient] HTTP status', res.status);
 
-    const json = await res.json().catch((err) => {
-      console.error('[RFClient] JSON parse error', err);
-      return null;
-    });
+        // If the adapter itself fails (5xx, etc.)
+        if (!res.ok) {
+          return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
+        }
 
-    console.debug('[RFClient] raw JSON', json);
+        const json = await res.json().catch((err) => {
+          console.error('[RFClient] JSON parse error', err);
+          return null;
+        });
 
-    if (!res.ok) {
-      return this._error(
-        'HTTP_ERROR',
-        `RF proxy returned ${res.status}`,
-        json
-      );
-    }
+        console.debug('[RFClient] raw JSON', json);
 
-    if (!json || json.success === false) {
-      const msg =
-        json && json.message
-          ? json.message
-          : 'Remote Falcon returned an error via LOF adapter';
-      return this._error('RF_ADAPTER_ERROR', msg, json || null);
-    }
+        // Our PHP adapter wraps RF JSON as { success, url, data }
+        if (!json || json.success === false) {
+          const msg =
+            json && json.message
+              ? json.message
+              : 'Remote Falcon returned an error via LOF adapter';
+          return this._error('RF_ADAPTER_ERROR', msg);
+        }
 
-    const raw = json.data ?? json;
-    const normalized = this._normalizeShowDetails(raw);
-    console.debug('[RFClient] normalized showDetails', normalized);
+        // This is the actual RF showDetails payload (preferences, sequences, etc.)
+        const raw = json.data ?? json;
 
-    return { ok: true, data: normalized };
-  } catch (err) {
-    console.error('[RFClient] network error', err);
-    return this._error('NETWORK_ERROR', err.message || String(err));
-  }
-},
+        const normalized = this._normalizeShowDetails(raw);
+        console.debug('[RFClient] normalized showDetails', normalized);
+
+        // IMPORTANT: InteractionLayer expects this shape directly:
+        // { success, timestamp, data, error, errorCode }
+        return normalized;
+      } catch (err) {
+        console.error('[RFClient] getShowDetails failed', err);
+        return this._error('NETWORK_ERROR', err.message || String(err));
+      }
+    },
 
 
 
