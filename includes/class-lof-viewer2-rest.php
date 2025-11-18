@@ -2,7 +2,7 @@
 /**
  * REST proxy for Lights on Falcon Viewer v2
  * - Proxies Remote Falcon External API via JWT/Bearer token
- * - RF API base URL and token are stored as WP options
+ * - Proxies FPP getStatus via WP so the browser never hits the LAN directly
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -65,7 +65,7 @@ class LOF_Viewer2_REST {
     public static function handle_show( \WP_REST_Request $request ) {
         $token = self::get_rf_bearer_token();
         if ( ! $token ) {
-            // No token: return 200 with debug info
+            // No token: return debug info (200 JSON, not 500/502)
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -76,7 +76,7 @@ class LOF_Viewer2_REST {
         }
 
         $api_base   = self::get_rf_api_base();
-        $remote_url = $api_base . '/showDetails'; // from your working setup
+        $remote_url = $api_base . '/showDetails';
 
         $response = wp_remote_get(
             $remote_url,
@@ -90,7 +90,6 @@ class LOF_Viewer2_REST {
         );
 
         if ( is_wp_error( $response ) ) {
-            // Network/SSL/etc error – return debug JSON, not HTTP 502
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -105,7 +104,6 @@ class LOF_Viewer2_REST {
         $body = wp_remote_retrieve_body( $response );
 
         if ( $code < 200 || $code >= 300 ) {
-            // RF responded non-2xx – return status + raw body
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -119,7 +117,6 @@ class LOF_Viewer2_REST {
 
         $data = json_decode( $body, true );
         if ( json_last_error() !== JSON_ERROR_NONE ) {
-            // RF body is not valid JSON – show raw
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -130,7 +127,6 @@ class LOF_Viewer2_REST {
             );
         }
 
-        // Happy path – pass RF JSON under "data"
         return rest_ensure_response(
             array(
                 'success' => true,
@@ -159,8 +155,8 @@ class LOF_Viewer2_REST {
             );
         }
 
-        $params    = $request->get_json_params();
-        $song_id   = isset( $params['song_id'] ) ? sanitize_text_field( $params['song_id'] ) : '';
+        $params     = $request->get_json_params();
+        $song_id    = isset( $params['song_id'] ) ? sanitize_text_field( $params['song_id'] ) : '';
         $visitor_id = isset( $params['visitor_id'] ) ? sanitize_text_field( $params['visitor_id'] ) : '';
 
         if ( empty( $song_id ) ) {
@@ -176,13 +172,11 @@ class LOF_Viewer2_REST {
         $api_base   = self::get_rf_api_base();
         $remote_url = $api_base . '/addSequenceToQueue';
 
-        // Map our viewer terminology to RF's expected payload.
         $rf_payload = array(
             'sequenceId' => $song_id,
         );
 
         if ( '' !== $visitor_id ) {
-            // If RF supports this, we pass it through; harmless if ignored.
             $rf_payload['visitorId'] = $visitor_id;
         }
 
@@ -249,9 +243,11 @@ class LOF_Viewer2_REST {
      * GET /wp-json/lof-viewer/v1/fpp/status
      * Proxy to local FPP getStatus endpoint:
      *   http://10.9.7.102/fppjson.php?command=getStatus
+     *
+     * IMPORTANT: We return 200 JSON even on error so we see details,
+     * instead of bubbling up a bare 502 from Cloudflare.
      */
     public static function handle_fpp_status( \WP_REST_Request $request ) {
-        // Later we can make this configurable.
         $base = get_option( 'lof_viewer_fpp_base' );
         if ( ! is_string( $base ) || '' === trim( $base ) ) {
             $base = 'http://10.9.7.102';
@@ -271,10 +267,14 @@ class LOF_Viewer2_REST {
         );
 
         if ( is_wp_error( $response ) ) {
-            return new \WP_Error(
-                'fpp_http_error',
-                $response->get_error_message(),
-                array( 'status' => 502 )
+            // Network/connection/DNS error
+            return rest_ensure_response(
+                array(
+                    'success' => false,
+                    'where'   => 'wp_remote_get',
+                    'url'     => $remote_url,
+                    'error'   => $response->get_error_message(),
+                )
             );
         }
 
@@ -282,41 +282,49 @@ class LOF_Viewer2_REST {
         $body = wp_remote_retrieve_body( $response );
 
         if ( $code < 200 || $code >= 300 ) {
-            return new \WP_Error(
-                'fpp_bad_status',
-                'FPP responded with HTTP ' . $code,
+            // FPP responded non-2xx
+            return rest_ensure_response(
                 array(
-                    'status'  => 502,
-                    'details' => $body,
+                    'success' => false,
+                    'where'   => 'fpp_http_status',
+                    'url'     => $remote_url,
+                    'status'  => $code,
+                    'body'    => $body,
                 )
             );
         }
 
         $data = json_decode( $body, true );
         if ( JSON_ERROR_NONE !== json_last_error() ) {
-            return new \WP_Error(
-                'fpp_bad_json',
-                'Invalid JSON from FPP',
-                array( 'status' => 502 )
+            return rest_ensure_response(
+                array(
+                    'success' => false,
+                    'where'   => 'fpp_bad_json',
+                    'url'     => $remote_url,
+                    'body'    => $body,
+                )
             );
         }
 
-        return rest_ensure_response( $data );
+        return rest_ensure_response(
+            array(
+                'success' => true,
+                'url'     => $remote_url,
+                'data'    => $data,
+            )
+        );
     }
 
     /**
      * Get RF API base URL from options (with a sensible default)
-     * This should match the "Remote Falcon API Base URL" from your existing config.
      */
     protected static function get_rf_api_base() {
         $base = get_option( self::OPTION_RF_API_BASE );
 
         if ( ! is_string( $base ) || '' === trim( $base ) ) {
-            // Default to your current RF external API url
             $base = 'https://getlitproductions.co/remote-falcon-external-api';
         }
 
-        // Ensure no trailing slash, we append paths manually
         $base = untrailingslashit( trim( $base ) );
         return $base;
     }
