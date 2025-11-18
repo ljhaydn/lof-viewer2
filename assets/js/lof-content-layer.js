@@ -34,6 +34,19 @@
         },
       },
 
+      statusWarnings: {
+        DEGRADED: {
+          default: 'Connection unstable. Some features may be limited.',
+          christmas: 'The workshop connection is flickering...',
+          halloween: 'The veil between worlds weakens...',
+        },
+        OFFLINE: {
+          default: 'Unable to reach the show. Trying to reconnect...',
+          christmas: "Can't reach the North Pole right now...",
+          halloween: 'Lost in the darkness...',
+        },
+      },
+
       loading: {
         request: {
           default: 'Adding your song to the queue...',
@@ -54,9 +67,9 @@
 
       success: {
         request: {
-          default: "Your song is in the queue at position {position}! Estimated wait: {wait} minutes.",
-          christmas: "🎄 Your song is queued at #{position}! Santa says {wait} minutes!",
-          halloween: '👻 Your song rises to position {position}. Wait: {wait} minutes.',
+          default: 'Your song is in the queue at position {position}!',
+          christmas: '🎄 Your song is queued at #{position}!',
+          halloween: '👻 Your song rises to position {position}.',
         },
         surprise: {
           default: "Surprise! '{title}' is queued at position {position}!",
@@ -124,6 +137,16 @@
           christmas: 'Shake the Present! 🎁',
           halloween: 'Summon a Mystery! 👻',
         },
+        noNextTrack: {
+          default: 'Tuning the lights...',
+          christmas: 'Preparing the next gift...',
+          halloween: 'Summoning the next spirit...',
+        },
+        emptyGrid: {
+          default: 'No songs available right now. Check back soon!',
+          christmas: "Santa's elves are restocking the workshop...",
+          halloween: 'The spell book is being updated...',
+        },
       },
 
       aria: {
@@ -151,6 +174,11 @@
           default: 'Speaker temporarily disabled',
           christmas: 'Shh... neighbors are sleeping 🌙',
           halloween: 'The spirits are resting 🌙',
+        },
+        helperText: {
+          default: 'Tap to play the speakers out front when the show is running.',
+          christmas: 'Tap to hear the music outside! 🎶',
+          halloween: 'Tap to unleash the sounds... 🎵',
         },
       },
     },
@@ -184,9 +212,8 @@
 
     getTileAriaLabel(title, artist, isAvailable) {
       const templateKey = isAvailable ? 'available' : 'unavailable';
-      const tpl =
-        this._content.aria?.tile?.[templateKey] || 'Request {title} by {artist}';
-      return tpl.replace('{title}', title).replace('{artist}', artist);
+      const tpl = this._content.aria?.tile?.[templateKey] || 'Request {title} by {artist}';
+      return tpl.replace('{title}', title).replace('{artist}', artist || '');
     },
 
     getSpeakerLabel(enabled) {
@@ -201,10 +228,96 @@
     },
 
     getRequesterLabel(name) {
-      if (name === 'Anonymous') {
+      if (!name || name === 'Anonymous' || name === 'Guest') {
         return this._currentTheme === 'christmas' ? '🎅' : '👻';
       }
       return name;
+    },
+
+    // ========================================
+    // NEW METHODS REQUIRED BY VIEW LAYER
+    // ========================================
+
+    /**
+     * Get status panel copy
+     * Called by ViewLayer.renderStatusPanel()
+     * Returns { text, indicatorClass, warning }
+     */
+    getStatusCopy(derived) {
+      const state = derived.state || 'LOADING';
+      const isInDegradedMode = derived.isInDegradedMode || false;
+
+      const text = this.getMessage('status', state);
+
+      // Map state to indicator class
+      const indicatorClass = `lof-state--${state.toLowerCase()}`;
+
+      // Show warning for DEGRADED or OFFLINE
+      let warning = '';
+      if (state === 'DEGRADED' || state === 'OFFLINE') {
+        warning = this.getMessage('statusWarnings', state);
+      }
+
+      return {
+        text,
+        indicatorClass,
+        warning,
+      };
+    },
+
+    /**
+     * Get "no next track" label
+     * Called by ViewLayer.renderNowNext()
+     * Returns string
+     */
+    getNoNextTrackLabel() {
+      return this.getMessage('labels', 'noNextTrack');
+    },
+
+    /**
+     * Get empty grid message
+     * Called by ViewLayer.renderSongGrid()
+     * Returns string
+     */
+    getEmptyGridMessage() {
+      return this.getMessage('labels', 'emptyGrid');
+    },
+
+    /**
+     * Get speaker button copy
+     * Called by ViewLayer.renderSpeakerButton()
+     * Returns { enabled, buttonLabel, title, helper }
+     */
+    getSpeakerCopy(speakerState) {
+      const enabled = speakerState.enabled || false;
+      const disabledByHeuristic = speakerState.disabledByHeuristic || false;
+
+      let buttonLabel = '';
+      let title = '';
+      let helper = this.getMessage('speaker.helperText', this._currentTheme) || 
+                   this._content.speaker.helperText?.default || 
+                   'Tap to play the speakers out front when the show is running.';
+
+      if (disabledByHeuristic) {
+        // Speaker is disabled by system
+        buttonLabel = this.getMessage('speaker', 'disabledByHeuristic');
+        title = buttonLabel;
+      } else if (enabled) {
+        // Speaker is on
+        buttonLabel = this.getMessage('speaker', 'enabled');
+        title = buttonLabel;
+      } else {
+        // Speaker is off but available
+        buttonLabel = this.getMessage('speaker', 'disabled');
+        title = buttonLabel;
+      }
+
+      return {
+        enabled: !disabledByHeuristic,
+        buttonLabel,
+        title,
+        helper,
+      };
     },
   };
 
