@@ -5,34 +5,47 @@
   // ------------------------------
   // RFClient – talks to WP REST proxy (JWT lives in PHP)
   // ------------------------------
-  const RFClient = {
-    // point this at your WP REST proxy, not Remote Falcon directly
-    _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
+ const RFClient = {
+  _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
-    async getShowDetails() {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
+  async getShowDetails() {
+    if (!this._baseURL) {
+      return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
+    }
+
+    const url = `${this._baseURL}/show?t=${Date.now()}`;
+
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
       }
 
-      const url = `${this._baseURL}/show?t=${Date.now()}`;
+      const json = await res.json();
 
-      try {
-        const res = await fetch(url, {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-        });
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-
-        const raw = await res.json();
-        return this._normalizeShowDetails(raw);
-      } catch (err) {
-        console.error('[RFClient] getShowDetails failed', err);
-        return this._error('NETWORK_ERROR', err.message);
+      // Our PHP adapter wraps RF JSON as { success, url, data }
+      if (!json || json.success === false) {
+        const msg =
+          json && json.message
+            ? json.message
+            : 'Remote Falcon returned an error via LOF adapter';
+        return this._error('RF_ADAPTER_ERROR', msg, json || null);
       }
-    },
+
+      const raw = json.data ?? json; // unwrap .data if present
+
+      const normalized = this._normalizeShowDetails(raw);
+      return { ok: true, data: normalized };
+    } catch (err) {
+      return this._error('NETWORK_ERROR', err.message || String(err));
+    }
+  },
 
     async requestSong(songId, visitorId) {
       if (!this._baseURL) {
