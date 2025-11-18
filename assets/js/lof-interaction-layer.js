@@ -213,7 +213,8 @@
 
     async _fetchAll() {
       const current = StateLayer.getState();
-
+      const rfResult = await RFClient.getShowDetails();
+      console.debug('[Interaction] RF result from getShowDetails', rfResult);
       const [rfRes, fppRes] = await Promise.all([
         RFClient.getShowDetails(),
         FPPClient.getStatus(),
