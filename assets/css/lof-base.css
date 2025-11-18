@@ -1,0 +1,152 @@
+/* assets/css/lof-base.css */
+
+:root {
+  --lof-primary: #c41e3a;
+  --lof-background: #0f0c29;
+  --lof-surface: #16213e;
+  --lof-text: #ffffff;
+  --lof-text-muted: #a8b2c1;
+  --lof-success: #10b981;
+  --lof-error: #ef4444;
+}
+
+.lof-viewer-shell {
+  background: var(--lof-background);
+  color: var(--lof-text);
+  padding: 1.5rem;
+  border-radius: 1.5rem;
+}
+
+.lof-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+[data-lof='status-panel'] {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+[data-lof='state-indicator'] {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--lof-primary);
+}
+
+.lof-state--loading [data-lof='state-indicator'],
+.lof-state-indicator.lof-state--loading {
+  background: var(--lof-text-muted);
+}
+
+.lof-state-indicator.lof-state--active {
+  background: var(--lof-success);
+}
+
+.lof-state-indicator.lof-state--degraded {
+  background: #f59e0b;
+}
+
+.lof-state-indicator.lof-state--offline {
+  background: var(--lof-error);
+}
+
+.lof-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.lof-button {
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lof-button--speaker {
+  background: #111827;
+  color: var(--lof-text);
+}
+
+.lof-button--on {
+  background: var(--lof-success);
+}
+
+.lof-button--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-lof='song-grid'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.lof-tile {
+  background: var(--lof-surface);
+  padding: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lof-tile__title {
+  font-weight: 600;
+}
+
+.lof-tile__artist {
+  font-size: 0.8rem;
+  color: var(--lof-text-muted);
+}
+
+.lof-tile--unavailable,
+.lof-tile--cooldown {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+[data-lof='queue'] {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.5rem;
+}
+
+.lof-queue-item {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.lof-message {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.lof-message--success {
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.lof-message--error {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.lof-message--loading {
+  background: rgba(156, 163, 175, 0.15);
+}
+
+.lof-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
