@@ -9,41 +9,58 @@
   _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
       async getShowDetails() {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
-      }
+  if (!this._baseURL) {
+    return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
+  }
 
-      const url = `${this._baseURL}/show?t=${Date.now()}`;
+  const url = `${this._baseURL}/show`;
 
-      try {
-        const res = await fetch(url, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-          },
-        });
+  try {
+    console.debug('[RFClient] fetching showDetails from', url);
 
-        if (!res.ok) {
-          return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
-        }
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
 
-        const json = await res.json();
+    console.debug('[RFClient] HTTP status', res.status);
 
-        if (!json || json.success === false) {
-          const msg =
-            json && json.message
-              ? json.message
-              : 'Remote Falcon returned an error via LOF adapter';
-          return this._error('RF_ADAPTER_ERROR', msg, json || null);
-        }
+    const json = await res.json().catch((err) => {
+      console.error('[RFClient] JSON parse error', err);
+      return null;
+    });
 
-        const raw = json.data ?? json;
-        const normalized = this._normalizeShowDetails(raw);
-        return { ok: true, data: normalized };
-      } catch (err) {
-        return this._error('NETWORK_ERROR', err.message || String(err));
-      }
-    },
+    console.debug('[RFClient] raw JSON', json);
+
+    if (!res.ok) {
+      return this._error(
+        'HTTP_ERROR',
+        `RF proxy returned ${res.status}`,
+        json
+      );
+    }
+
+    if (!json || json.success === false) {
+      const msg =
+        json && json.message
+          ? json.message
+          : 'Remote Falcon returned an error via LOF adapter';
+      return this._error('RF_ADAPTER_ERROR', msg, json || null);
+    }
+
+    const raw = json.data ?? json;
+    const normalized = this._normalizeShowDetails(raw);
+    console.debug('[RFClient] normalized showDetails', normalized);
+
+    return { ok: true, data: normalized };
+  } catch (err) {
+    console.error('[RFClient] network error', err);
+    return this._error('NETWORK_ERROR', err.message || String(err));
+  }
+},
+
 
 
     async requestSong(songId, visitorId) {
