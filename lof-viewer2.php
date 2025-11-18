@@ -34,13 +34,16 @@ function lof_viewer2_enqueue_assets() {
 
     global $post;
 
+    // Only load on pages that actually use the viewer shortcode
     if ( ! has_shortcode( $post->post_content, 'lof_viewer_v2' ) ) {
         return;
     }
 
     $plugin_url = plugin_dir_url( __FILE__ );
 
-    // Core JS layers of the microframework
+    // --- JS microframework layers in dependency order ---
+
+    // 1) API layer: RF + FPP clients
     wp_enqueue_script(
         'lof-viewer2-api',
         $plugin_url . 'assets/js/lof-api-layer.js',
@@ -49,6 +52,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
+    // 2) State layer: central store
     wp_enqueue_script(
         'lof-viewer2-state',
         $plugin_url . 'assets/js/lof-state-layer.js',
@@ -57,6 +61,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
+    // 3) Theme layer: theming + derived state
     wp_enqueue_script(
         'lof-viewer2-theme',
         $plugin_url . 'assets/js/lof-theme-layer.js',
@@ -65,6 +70,7 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
+    // 4) Content layer: copy + labels (used by ViewLayer)
     wp_enqueue_script(
         'lof-viewer2-content',
         $plugin_url . 'assets/js/lof-content-layer.js',
@@ -73,14 +79,25 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
+    // 5) View layer: DOM rendering (depends on ContentLayer)
     wp_enqueue_script(
-        'lof-viewer2-interaction',
-        $plugin_url . 'assets/js/lof-interaction-layer.js',
+        'lof-viewer2-view',
+        $plugin_url . 'assets/js/lof-view-layer.js',
         array( 'lof-viewer2-content' ),
         '0.1.0',
         true
     );
 
+    // 6) Interaction layer: wiring user events, calls RF/FPP + ViewLayer
+    wp_enqueue_script(
+        'lof-viewer2-interaction',
+        $plugin_url . 'assets/js/lof-interaction-layer.js',
+        array( 'lof-viewer2-view' ),
+        '0.1.0',
+        true
+    );
+
+    // 7) Init: bootstraps the whole viewer
     wp_enqueue_script(
         'lof-viewer2-init',
         $plugin_url . 'assets/js/lof-init.js',
@@ -89,21 +106,21 @@ function lof_viewer2_enqueue_assets() {
         true
     );
 
-    // Styles (if you have a dedicated CSS file)
+    // Styles (viewer skin)
     wp_enqueue_style(
         'lof-viewer2-style',
-        $plugin_url . 'assets/css/lof-viewer2.css',
+        $plugin_url . 'assets/css/lof-base.css',
         array(),
         '0.1.0'
     );
 
-    // Build LOF_CONFIG injected into the page for JS
-    $theme = 'default'; // you can later expose this via settings
+    // --- LOF_CONFIG passed from PHP into JS ---
 
-    $rf_proxy_base = rest_url( 'lof-viewer/v1' );      // matches RFClient._baseURL
-    $lof_base      = rest_url( 'lof/v1' );             // your existing LOF endpoints if already used
-    // FPP is accessed via WP proxy: /wp-json/lof-viewer/v1/fpp
-    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );
+    $theme = 'default'; // can be made configurable later
+
+    $rf_proxy_base = rest_url( 'lof-viewer/v1' );      // RF proxy namespace
+    $lof_base      = rest_url( 'lof/v1' );             // existing LOF endpoints (if/when used)
+    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );  // FPP proxy namespace
 
     $config = array(
         'rfProxyBaseUrl'   => untrailingslashit( $rf_proxy_base ),
@@ -111,10 +128,10 @@ function lof_viewer2_enqueue_assets() {
         'fppBaseUrl'       => untrailingslashit( $fpp_base ),
         'theme'            => $theme,
         'polling'          => array(
-            'intervalMs'       => 5000,
-            'maxBackoffMs'     => 30000,
-            'rfDebounceMs'     => 0,
-            'fppDebounceMs'    => 0,
+            'intervalMs'        => 5000,
+            'maxBackoffMs'      => 30000,
+            'rfDebounceMs'      => 0,
+            'fppDebounceMs'     => 0,
             'connectionTimeout' => 10000,
         ),
         'copy'             => array(
