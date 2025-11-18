@@ -15,31 +15,68 @@
       const panel = document.querySelector('[data-lof="status-panel"]');
       if (!panel) return;
 
-      const indicator = panel.querySelector('[data-lof="state-indicator"]');
-      const textEl = panel.querySelector('[data-lof="status-text"]');
+      const statusTextEl = panel.querySelector('[data-lof="status-text"]');
+      const indicatorEl = panel.querySelector('[data-lof="state-indicator"]');
       const warningEl = panel.querySelector('[data-lof="connection-warning"]');
 
-      if (!indicator || !textEl || !warningEl) return;
+      if (statusTextEl) {
+        statusTextEl.textContent = ContentLayer.getMessage(
+          'status',
+          state.currentState,
+          { showActive: derived.isShowActive },
+        );
+      }
 
-      const statusCopy = ContentLayer.getStatusCopy(derived);
-      textEl.textContent = statusCopy.text;
+      if (indicatorEl) {
+        indicatorEl.className = ThemeLayer.getStateClass(state.currentState);
+      }
 
-      indicator.className = `lof-state-indicator ${statusCopy.indicatorClass}`;
-      warningEl.style.display = statusCopy.warning ? '' : 'none';
-      warningEl.textContent = statusCopy.warning || '';
+      if (warningEl) {
+        if (derived.isInDegradedMode) {
+          warningEl.style.display = 'block';
+          warningEl.textContent = 'Limited connectivity – things may flicker.';
+        } else {
+          warningEl.style.display = 'none';
+        }
+      }
     },
 
     renderNowNext(nowPlaying, upNext) {
-      const nowTitleEl = document.querySelector('[data-lof="now-title"]');
-      const nowArtistEl = document.querySelector('[data-lof="now-artist"]');
-      const nextTitleEl = document.querySelector('[data-lof="next-title"]');
-      const nextArtistEl = document.querySelector('[data-lof="next-artist"]');
+      const nowEl = document.querySelector('[data-lof="now-playing"]');
+      const nextEl = document.querySelector('[data-lof="up-next"]');
 
-      if (nowTitleEl) nowTitleEl.textContent = nowPlaying?.title || 'Intermission';
-      if (nowArtistEl) nowArtistEl.textContent = nowPlaying?.artist || '';
+      if (nowEl) {
+        if (nowPlaying) {
+          nowEl.style.display = '';
+          const titleEl = nowEl.querySelector('[data-lof="np-title"]');
+          const artistEl = nowEl.querySelector('[data-lof="np-artist"]');
+          const progEl = nowEl.querySelector('[data-lof="np-progress"]');
+          if (titleEl) titleEl.textContent = nowPlaying.title;
+          if (artistEl) artistEl.textContent = nowPlaying.artist;
+          if (progEl && nowPlaying.duration > 0) {
+            const pct = Math.max(
+              0,
+              Math.min(100, (nowPlaying.elapsedSeconds / nowPlaying.duration) * 100),
+            );
+            progEl.style.width = `${pct}%`;
+            progEl.setAttribute('aria-valuenow', String(Math.round(pct)));
+          }
+        } else {
+          nowEl.style.display = 'none';
+        }
+      }
 
-      if (nextTitleEl) nextTitleEl.textContent = upNext?.title || ContentLayer.getNoNextTrackLabel();
-      if (nextArtistEl) nextArtistEl.textContent = upNext?.artist || '';
+      if (nextEl) {
+        if (upNext) {
+          nextEl.style.display = '';
+          const titleEl = nextEl.querySelector('[data-lof="next-title"]');
+          const artistEl = nextEl.querySelector('[data-lof="next-artist"]');
+          if (titleEl) titleEl.textContent = upNext.title;
+          if (artistEl) artistEl.textContent = upNext.artist;
+        } else {
+          nextEl.style.display = 'none';
+        }
+      }
     },
 
     renderSongGrid(songs) {
@@ -49,21 +86,18 @@
       grid.innerHTML = '';
 
       if (!songs || songs.length === 0) {
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'lof-empty-grid';
-        emptyMsg.textContent = ContentLayer.getEmptyGridMessage();
-        grid.appendChild(emptyMsg);
         return;
       }
 
+      // Simple flat grid for now – categories can come later
       songs.forEach((song) => {
         const tile = document.createElement('button');
-        tile.className = 'lof-tile';
-        tile.dataset.lofSongId = song.songId;
+        tile.type = 'button';
+        tile.className = ThemeLayer.getTileClass(song.isAvailable, !!song.cooldownUntil);
+        tile.setAttribute('data-song-id', song.songId);
 
-        if (!song.isAvailable) {
+        if (!song.isAvailable || (song.cooldownUntil && song.cooldownUntil > Date.now())) {
           tile.disabled = true;
-          tile.classList.add('lof-tile--disabled');
         }
 
         const titleEl = document.createElement('div');
@@ -79,11 +113,7 @@
 
         tile.setAttribute(
           'aria-label',
-          ContentLayer.getTileAriaLabel(
-            song.title,
-            song.artist,
-            tile.disabled === false
-          )
+          ContentLayer.getTileAriaLabel(song.title, song.artist, tile.disabled === false),
         );
 
         grid.appendChild(tile);
@@ -105,51 +135,81 @@
       container.style.display = '';
       listEl.innerHTML = '';
 
-      queue.forEach((entry) => {
+      queue.forEach((item, idx) => {
         const li = document.createElement('li');
         li.className = 'lof-queue-item';
 
-        const positionEl = document.createElement('span');
-        positionEl.className = 'lof-queue-item__position';
-        positionEl.textContent = entry.position;
+        const pos = document.createElement('span');
+        pos.className = 'lof-queue-item__position';
+        pos.textContent = `${idx + 1}.`;
 
-        const titleEl = document.createElement('span');
-        titleEl.className = 'lof-queue-item__title';
-        titleEl.textContent = entry.title;
+        const title = document.createElement('span');
+        title.className = 'lof-queue-item__title';
+        title.textContent = item.title;
 
-        const requestedByEl = document.createElement('span');
-        requestedByEl.className = 'lof-queue-item__requested-by';
-        requestedByEl.textContent = ContentLayer.getRequestedByLabel(entry.requestedBy);
+        const requester = document.createElement('span');
+        requester.className = 'lof-queue-item__requester';
+        requester.textContent = ContentLayer.getRequesterLabel(item.requestedBy);
 
-        li.appendChild(positionEl);
-        li.appendChild(titleEl);
-        li.appendChild(requestedByEl);
+        li.appendChild(pos);
+        li.appendChild(title);
+        li.appendChild(requester);
 
         listEl.appendChild(li);
       });
     },
 
     renderSpeakerButton(speakerState) {
-      const button = document.querySelector('[data-lof="speaker-toggle"]');
-      const labelEl = document.querySelector('[data-lof="speaker-label"]');
-      const helperEl = document.querySelector('[data-lof="speaker-helper"]');
+      const btn = document.querySelector('[data-lof="speaker-toggle"]');
+      const labelEl = btn?.querySelector('[data-lof="speaker-label"]');
+      if (!btn || !labelEl) return;
 
-      if (!button || !labelEl || !helperEl) return;
+      btn.className = ThemeLayer.getSpeakerButtonClass(
+        speakerState.enabled,
+        speakerState.disabledByHeuristic,
+      );
+      btn.setAttribute('aria-pressed', speakerState.enabled ? 'true' : 'false');
 
-      const copy = ContentLayer.getSpeakerCopy(speakerState);
+      if (speakerState.disabledByHeuristic) {
+        btn.disabled = true;
+        btn.setAttribute(
+          'aria-label',
+          ContentLayer.getSpeakerAriaLabel('disabled', speakerState.disabledReason),
+        );
+      } else {
+        btn.disabled = false;
+        btn.setAttribute(
+          'aria-label',
+          ContentLayer.getSpeakerAriaLabel(speakerState.enabled ? 'on' : 'off'),
+        );
+      }
 
-      button.disabled = !copy.enabled;
-      button.classList.toggle('lof-button--disabled', !copy.enabled);
-      button.textContent = copy.buttonLabel;
-
-      labelEl.textContent = copy.title;
-      helperEl.textContent = copy.helper;
+      labelEl.textContent = ContentLayer.getSpeakerLabel(speakerState.enabled);
     },
 
-    showToast(message) {
+    showLoading(message) {
       const container = document.querySelector('[data-lof="messages"]');
       if (!container) return;
+      container.innerHTML = `
+        <div class="lof-message lof-message--loading" role="status">
+          <span>${message}</span>
+        </div>`;
+    },
 
+    showError(errorData) {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (!container) return;
+      const msg = ContentLayer.getErrorMessage(errorData.code, errorData.context || {});
+      container.innerHTML = `
+        <div class="lof-message lof-message--error" role="alert">
+          <span>${msg}</span>
+        </div>`;
+      setTimeout(() => this.clearMessages(), 8000);
+    },
+
+    showSuccess(message) {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (!container) return;
       container.innerHTML = `
         <div class="lof-message lof-message--success" role="status">
           <span>${message}</span>
@@ -163,6 +223,5 @@
     },
   };
 
-  // Expose globally so StateLayer/InteractionLayer can call ViewLayer.render(...)
   window.ViewLayer = ViewLayer;
 })(window);
