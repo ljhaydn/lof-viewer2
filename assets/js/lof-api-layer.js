@@ -13,7 +13,6 @@
         return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
       }
 
-      // We call our WP REST adapter, not RF directly.
       const url = `${this._baseURL}/show`;
 
       try {
@@ -28,7 +27,6 @@
 
         console.debug('[RFClient] HTTP status', res.status);
 
-        // If the adapter itself fails (5xx, etc.)
         if (!res.ok) {
           return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
         }
@@ -40,7 +38,6 @@
 
         console.debug('[RFClient] raw JSON', json);
 
-        // Our PHP adapter wraps RF JSON as { success, url, data }
         if (!json || json.success === false) {
           const msg =
             json && json.message
@@ -49,15 +46,12 @@
           return this._error('RF_ADAPTER_ERROR', msg);
         }
 
-        // This is the actual RF showDetails payload (preferences, sequences, etc.)
         const raw = json.data ?? json;
 
         const normalized = this._normalizeShowDetails(raw);
         console.debug('[RFClient] normalized showDetails', normalized);
 
-        // IMPORTANT: InteractionLayer expects this shape directly:
-        // { success, timestamp, data, error, errorCode }
-        return normalized;
+        return normalized; // { success, timestamp, data, error, errorCode }
       } catch (err) {
         console.error('[RFClient] getShowDetails failed', err);
         return this._error('NETWORK_ERROR', err.message || String(err));
@@ -96,34 +90,27 @@
     },
 
     _normalizeShowDetails(raw) {
-      // raw is the RF showDetails JSON:
-      // { preferences, sequences, sequenceGroups, requests, votes, playingNow, playingNext, playingNextFromSchedule }
-
       const sequences = Array.isArray(raw.sequences) ? raw.sequences : [];
 
-      // Helper: find a sequence by its "name" (that's what playingNow/Next use)
       const findSeqByName = (name) =>
         !name ? null : sequences.find((s) => s && s.name === name) || null;
 
       const nowSeq = findSeqByName(raw.playingNow);
 
-      // If RF provides playingNext, use that; otherwise fall back to schedule-based next
       const nextName =
         raw.playingNext && raw.playingNext !== ''
           ? raw.playingNext
           : raw.playingNextFromSchedule || '';
       const nextSeq = findSeqByName(nextName);
 
-      // Normalize a sequence into our internal "song" shape
       const toSong = (seq) =>
         !seq
           ? null
           : {
-              songId: seq.name, // RF "name" is the unique ID
+              songId: seq.name,
               title: seq.displayName || seq.name || 'Untitled',
               artist: seq.artist || null,
               duration: seq.duration || 0,
-              // We don't get per-song elapsed time from this endpoint
               elapsedSeconds: 0,
               category: seq.category || 'general',
               visible: seq.visible !== false,
@@ -133,10 +120,8 @@
       const nowPlaying = toSong(nowSeq);
       const upNext = toSong(nextSeq);
 
-      // Requests queue – RF "requests" array may be empty when nobody has queued anything yet.
       const queue = (Array.isArray(raw.requests) ? raw.requests : []).map(
         (req, index) => ({
-          // RF schema varies by version; we try a few common keys
           songId:
             req.sequenceName ||
             req.sequence ||
@@ -157,7 +142,6 @@
         })
       );
 
-      // Available songs – filter visible + active sequences
       const availableSongs = sequences
         .filter((s) => s && s.visible !== false && s.active !== false)
         .map((s) => ({
@@ -172,7 +156,6 @@
 
       const prefs = raw.preferences || {};
 
-      // Very simple show status heuristic for now
       const showStatus =
         sequences.length === 0
           ? 'idle'
@@ -203,7 +186,6 @@
         return this._error('RF_REQUEST_ERROR', 'Empty response from RF');
       }
 
-      // This may need refinement once we inspect RF's POST response shape.
       if (json.success === false) {
         return this._error('RF_REQUEST_ERROR', json.message || 'Request failed');
       }
@@ -254,14 +236,17 @@
     },
 
     _normalizeStatus(raw) {
+      // raw is whatever /api/fppd/status returns under data
+      const d = raw && raw.data ? raw.data : raw || {};
+
       return {
         success: true,
         timestamp: Date.now(),
         data: {
-          mode: raw.fppMode || 'idle',
-          currentSequence: raw.current_sequence || null,
-          secondsElapsed: raw.seconds_played || 0,
-          secondsRemaining: raw.seconds_remaining || 0,
+          mode: d.mode_name || d.fppMode || 'idle',
+          currentSequence: d.current_sequence || null,
+          secondsElapsed: d.seconds_played || 0,
+          secondsRemaining: d.seconds_remaining || 0,
         },
         error: null,
         errorCode: null,
@@ -286,4 +271,8 @@
     RFClient,
     FPPClient,
   };
+
+  // ✅ Also expose globals because lof-interaction-layer.js calls RFClient/FPPClient directly
+  window.RFClient = RFClient;
+  window.FPPClient = FPPClient;
 })(window);
