@@ -8,44 +8,43 @@
  const RFClient = {
   _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
-  async getShowDetails() {
-    if (!this._baseURL) {
-      return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
-    }
-
-    const url = `${this._baseURL}/show?t=${Date.now()}`;
-
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
+      async getShowDetails() {
+      if (!this._baseURL) {
+        return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
       }
 
-      const json = await res.json();
+      const url = `${this._baseURL}/show?t=${Date.now()}`;
 
-      // Our PHP adapter wraps RF JSON as { success, url, data }
-      if (!json || json.success === false) {
-        const msg =
-          json && json.message
-            ? json.message
-            : 'Remote Falcon returned an error via LOF adapter';
-        return this._error('RF_ADAPTER_ERROR', msg, json || null);
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+
+        if (!res.ok) {
+          return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
+        }
+
+        const json = await res.json();
+
+        if (!json || json.success === false) {
+          const msg =
+            json && json.message
+              ? json.message
+              : 'Remote Falcon returned an error via LOF adapter';
+          return this._error('RF_ADAPTER_ERROR', msg, json || null);
+        }
+
+        const raw = json.data ?? json;
+        const normalized = this._normalizeShowDetails(raw);
+        return { ok: true, data: normalized };
+      } catch (err) {
+        return this._error('NETWORK_ERROR', err.message || String(err));
       }
+    },
 
-      const raw = json.data ?? json; // unwrap .data if present
-
-      const normalized = this._normalizeShowDetails(raw);
-      return { ok: true, data: normalized };
-    } catch (err) {
-      return this._error('NETWORK_ERROR', err.message || String(err));
-    }
-  },
 
     async requestSong(songId, visitorId) {
       if (!this._baseURL) {
