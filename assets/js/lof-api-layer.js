@@ -248,22 +248,24 @@
   const FPPClient = {
     _baseURL: window.LOF_CONFIG?.fppBaseUrl || '',
 
-    async getStatus() {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'FPP base URL not configured');
-      }
+  async getStatus() {
+    if (!this._baseURL) {
+      return this._error('CONFIG_ERROR', 'FPP base URL not configured');
+    }
 
-      const url = `${this._baseURL}/fppjson.php?command=getStatus`;
-      try {
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const raw = await res.json();
-        return this._normalizeStatus(raw);
-      } catch (err) {
-        console.error('[FPPClient] getStatus failed', err);
-        return this._error('NETWORK_ERROR', err.message);
-      }
-    },
+    // Call the WP proxy: /wp-json/lof-viewer/v1/fpp/status
+    const url = `${this._baseURL}/status`;
+
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      return this._normalizeStatus(raw);
+    } catch (err) {
+      console.error('[FPPClient] getStatus failed', err);
+      return this._error('NETWORK_ERROR', err.message);
+    }
+  },
 
     _normalizeStatus(raw) {
       return {

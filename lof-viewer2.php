@@ -219,8 +219,8 @@ function lof_viewer2_enqueue_assets( $theme = 'christmas' ) {
     // Build LOF_CONFIG – this is what JS reads
     $rf_proxy_base = rest_url( 'lof-viewer/v1' );      // matches RFClient._baseURL
     $lof_base      = rest_url( 'lof/v1' );             // your existing LOF endpoints if already used
-    $fpp_base      = 'http://10.9.7.102';              // or a WP proxy if you want to hide LAN
-
+    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );  // FPP is accessed via WP proxy: /wp-json/lof-viewer/v1/fpp
+    
     $config = array(
         'rfProxyBaseUrl'   => untrailingslashit( $rf_proxy_base ),
         'lofBaseUrl'       => untrailingslashit( $lof_base ),

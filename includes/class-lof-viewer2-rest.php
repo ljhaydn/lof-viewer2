@@ -25,26 +25,64 @@ class LOF_Viewer2_REST {
     /**
      * Register REST routes for viewer v2
      */
-    public static function register_routes() {
-        register_rest_route(
-            self::REST_NAMESPACE,
-            '/show',
+    /**
+     * GET /wp-json/lof-viewer/v1/fpp/status
+     * Proxies to local FPP getStatus endpoint:
+     *   http://10.9.7.102/fppjson.php?command=getStatus
+     */
+    public static function handle_fpp_status( \WP_REST_Request $request ) {
+        // Later we can make this configurable, matching your architecture docs.
+        $base = get_option( 'lof_viewer_fpp_base' );
+        if ( ! is_string( $base ) || '' === trim( $base ) ) {
+            $base = 'http://10.9.7.102';
+        }
+
+        $base       = untrailingslashit( trim( $base ) );
+        $remote_url = $base . '/fppjson.php?command=getStatus';
+
+        $response = wp_remote_get(
+            $remote_url,
             array(
-                'methods'             => 'GET',
-                'callback'            => array( __CLASS__, 'handle_show' ),
-                'permission_callback' => '__return_true',
+                'timeout' => 5,
+                'headers' => array(
+                    'Accept' => 'application/json',
+                ),
             )
         );
 
-        register_rest_route(
-            self::REST_NAMESPACE,
-            '/request',
-            array(
-                'methods'             => 'POST',
-                'callback'            => array( __CLASS__, 'handle_request' ),
-                'permission_callback' => '__return_true',
-            )
-        );
+        if ( is_wp_error( $response ) ) {
+            return new \WP_Error(
+                'fpp_http_error',
+                $response->get_error_message(),
+                array( 'status' => 502 )
+            );
+        }
+
+        $code = wp_remote_retrieve_response_code( $response );
+        $body = wp_remote_retrieve_body( $response );
+
+        if ( $code < 200 || $code >= 300 ) {
+            return new \WP_Error(
+                'fpp_bad_status',
+                'FPP responded with HTTP ' . $code,
+                array(
+                    'status'  => 502,
+                    'details' => $body,
+                )
+            );
+        }
+
+        $data = json_decode( $body, true );
+        if ( JSON_ERROR_NONE !== json_last_error() ) {
+            return new \WP_Error(
+                'fpp_bad_json',
+                'Invalid JSON from FPP',
+                array( 'status' => 502 )
+            );
+        }
+
+        // Pass FPP JSON straight through
+        return rest_ensure_response( $data );
     }
 
     /**
