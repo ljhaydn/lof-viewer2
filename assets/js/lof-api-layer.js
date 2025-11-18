@@ -103,11 +103,23 @@
 
     /**
      * Normalize Remote Falcon showDetails into the Viewer v2 shape.
-     * This is where we decide:
-     * - nowPlaying       → from RF.playingNow
-     * - upNext           → FIRST: head of RF.requests queue, ELSE: playingNext / playingNextFromSchedule
-     * - queue            → mapped RF.requests
-     * - availableSongs   → visible + active sequences
+     * 
+     * PORTED FROM V1 VIEWER BEHAVIOR:
+     * ================================
+     * Remote Falcon External API returns:
+     * - playingNow: current sequence name (string)
+     * - playingNext: next scheduled sequence name (string)
+     * - playingNextFromSchedule: fallback next from schedule (string)
+     * - requests: array of queued viewer requests
+     *   CRITICAL: Each request has a `sequence` property that is an OBJECT, not a string!
+     *   Structure: { sequence: { name, displayName, artist, duration, ... }, position, ... }
+     * - votes: array of voting-mode requests (if applicable)
+     * - sequences: array of all available sequences
+     * 
+     * V1 BEHAVIOR FOR UP NEXT:
+     * 1. Try to find sequence matching playingNext
+     * 2. If not found AND requests.length > 0, use requests[0].sequence OBJECT
+     * 3. Fall back to empty
      */
     _normalizeShowDetails(raw) {
       const sequences = Array.isArray(raw.sequences) ? raw.sequences : [];
@@ -131,59 +143,45 @@
             };
 
       // ----- Queue -----
+      // FIXED: RF's requests array contains objects where `sequence` is an OBJECT, not a string
       const rawRequests = Array.isArray(raw.requests) ? raw.requests : [];
-      const queue = rawRequests.map((req, index) => ({
-        songId:
-          req.sequenceName || req.sequence || req.sequenceId || req.name || null,
-        title:
-          req.displayName ||
-          req.sequenceDisplayName ||
-          req.title ||
-          'Requested song',
-        requestedBy:
-          req.requestedBy ||
-          req.requesterName ||
-          req.visitor_name ||
-          'Guest',
-        position: req.position ?? index + 1,
-      }));
+      
+      const queue = rawRequests.map((req, index) => {
+        // req.sequence is an OBJECT with { name, displayName, artist, duration, ... }
+        const seqObj = (req.sequence && typeof req.sequence === 'object') ? req.sequence : {};
+        const songId = seqObj.name || null;
+        const title = seqObj.displayName || seqObj.name || 'Requested song';
+        const artist = seqObj.artist || '';
+        
+        return {
+          songId,
+          title,
+          artist,
+          requestedBy: req.viewerRequested || req.requesterName || req.visitor_name || 'Guest',
+          position: (typeof req.position === 'number') ? req.position : index + 1,
+        };
+      });
 
       // ----- Now Playing -----
       const nowSeq = findSeqByName(raw.playingNow);
       const nowPlaying = toSong(nowSeq);
 
       // ----- Up Next -----
+      // FIXED: Port v1 logic exactly:
+      // 1. Try playingNext from RF
+      // 2. If not found AND queue has items, use the first queue item's sequence OBJECT
       let upNext = null;
 
-      if (queue.length > 0) {
-        // Prefer the head of the RF request queue as "Up Next"
-        const q0 = queue[0];
-        const queuedSeq = q0.songId ? findSeqByName(q0.songId) : null;
-        upNext = toSong(queuedSeq);
+      const playingNextRaw = raw.playingNext || '';
+      let nextSeq = findSeqByName(playingNextRaw);
 
-        // Fallback if we can't resolve the sequence metadata
-        if (!upNext && q0.songId) {
-          upNext = {
-            songId: q0.songId,
-            title: q0.title || 'Requested song',
-            artist: null,
-            duration: 0,
-            category: 'general',
-            visible: true,
-            active: true,
-            isAvailable: true,
-            cooldownUntil: null,
-          };
-        }
-      } else {
-        // No queue: fall back to RF's notion of what is next in the schedule
-        const nextName =
-          raw.playingNext && raw.playingNext !== ''
-            ? raw.playingNext
-            : raw.playingNextFromSchedule || '';
-        const nextSeq = findSeqByName(nextName);
-        upNext = toSong(nextSeq);
+      // V1 line 643-645: if (!nextSeq && rawRequests.length > 0 && rawRequests[0].sequence)
+      if (!nextSeq && rawRequests.length > 0 && rawRequests[0].sequence) {
+        // rawRequests[0].sequence is an OBJECT, not a string!
+        nextSeq = rawRequests[0].sequence;
       }
+
+      upNext = toSong(nextSeq);
 
       // ----- Available songs -----
       const availableSongs = sequences
