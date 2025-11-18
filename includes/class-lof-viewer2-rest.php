@@ -11,21 +11,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class LOF_Viewer2_REST {
 
-    const REST_NAMESPACE        = 'lof-viewer/v1';
-    const OPTION_RF_API_BASE    = 'lof_viewer_rf_api_base';
-    const OPTION_RF_BEARER_KEY  = 'lof_viewer_rf_bearer_token';
+    const REST_NAMESPACE       = 'lof-viewer/v1';
+    const OPTION_RF_API_BASE   = 'lof_viewer_rf_api_base';
+    const OPTION_RF_BEARER_KEY = 'lof_viewer_rf_bearer_token';
 
     /**
-     * Init hooks
+     * Init hooks.
      */
     public static function init() {
         add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
     }
 
     /**
-     * Register REST routes for viewer v2
+     * Register REST routes for viewer v2.
      */
     public static function register_routes() {
+        // Remote Falcon: showDetails
         register_rest_route(
             self::REST_NAMESPACE,
             '/show',
@@ -36,6 +37,7 @@ class LOF_Viewer2_REST {
             )
         );
 
+        // Remote Falcon: addSequenceToQueue
         register_rest_route(
             self::REST_NAMESPACE,
             '/request',
@@ -46,7 +48,7 @@ class LOF_Viewer2_REST {
             )
         );
 
-        // FPP status proxy: /wp-json/lof-viewer/v1/fpp/status
+        // FPP status proxy
         register_rest_route(
             self::REST_NAMESPACE,
             '/fpp/status',
@@ -60,12 +62,11 @@ class LOF_Viewer2_REST {
 
     /**
      * GET /wp-json/lof-viewer/v1/show
-     * Proxies Remote Falcon External API "showDetails"
+     * Proxies Remote Falcon External API "showDetails".
      */
     public static function handle_show( \WP_REST_Request $request ) {
         $token = self::get_rf_bearer_token();
         if ( ! $token ) {
-            // No token: return debug info (200 JSON, not 500/502)
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -138,34 +139,39 @@ class LOF_Viewer2_REST {
 
     /**
      * POST /wp-json/lof-viewer/v1/request
-     * Proxies Remote Falcon External API "addSequenceToQueue"
+     * Proxy to Remote Falcon "addSequenceToQueue".
      *
-     * JS sends { song_id, visitor_id } to this endpoint.
-     * We map that to RF's expected payload (sequenceId, visitorId).
+     * Expects JSON in the request body:
+     *   { "song_id": "sequenceName", "visitor_id": "optional" }
+     *
+     * Returns:
+     *   { "status": <http status>, "data": <decoded RF JSON or null> }
      */
     public static function handle_request( \WP_REST_Request $request ) {
         $token = self::get_rf_bearer_token();
         if ( ! $token ) {
-            return rest_ensure_response(
-                array(
-                    'success' => false,
-                    'where'   => 'no_token',
-                    'message' => 'Remote Falcon bearer token not configured',
-                )
+            return new \WP_Error(
+                'rf_no_token',
+                'Remote Falcon bearer token not configured',
+                array( 'status' => 500 )
             );
         }
 
-        $params     = $request->get_json_params();
-        $song_id    = isset( $params['song_id'] ) ? sanitize_text_field( $params['song_id'] ) : '';
-        $visitor_id = isset( $params['visitor_id'] ) ? sanitize_text_field( $params['visitor_id'] ) : '';
+        $params = $request->get_json_params();
 
-        if ( empty( $song_id ) ) {
-            return rest_ensure_response(
-                array(
-                    'success' => false,
-                    'where'   => 'missing_song_id',
-                    'message' => 'Song ID is required',
-                )
+        // Accept both "song_id" and "sequence" for flexibility.
+        $sequence = '';
+        if ( isset( $params['sequence'] ) ) {
+            $sequence = sanitize_text_field( $params['sequence'] );
+        } elseif ( isset( $params['song_id'] ) ) {
+            $sequence = sanitize_text_field( $params['song_id'] );
+        }
+
+        if ( '' === $sequence ) {
+            return new \WP_Error(
+                'rf_missing_sequence',
+                'Song / sequence ID is required',
+                array( 'status' => 400 )
             );
         }
 
@@ -173,11 +179,12 @@ class LOF_Viewer2_REST {
         $remote_url = $api_base . '/addSequenceToQueue';
 
         $rf_payload = array(
-            'sequenceId' => $song_id,
+            // This field name matches what RF expects.
+            'sequence' => $sequence,
         );
 
-        if ( '' !== $visitor_id ) {
-            $rf_payload['visitorId'] = $visitor_id;
+        if ( ! empty( $params['visitor_id'] ) ) {
+            $rf_payload['visitorId'] = sanitize_text_field( $params['visitor_id'] );
         }
 
         $response = wp_remote_post(
@@ -185,66 +192,42 @@ class LOF_Viewer2_REST {
             array(
                 'timeout' => 10,
                 'headers' => array(
-                    'Content-Type'  => 'application/json',
                     'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                    'Accept'        => 'application/json',
                 ),
                 'body'    => wp_json_encode( $rf_payload ),
             )
         );
 
         if ( is_wp_error( $response ) ) {
-            return rest_ensure_response(
-                array(
-                    'success' => false,
-                    'where'   => 'wp_remote_post',
-                    'url'     => $remote_url,
-                    'error'   => $response->get_error_message(),
-                )
+            return new \WP_Error(
+                'rf_http_error',
+                $response->get_error_message(),
+                array( 'status' => 502 )
             );
         }
 
-        $code = wp_remote_retrieve_response_code( $response );
-        $body = wp_remote_retrieve_body( $response );
+        $code    = wp_remote_retrieve_response_code( $response );
+        $body    = wp_remote_retrieve_body( $response );
+        $decoded = json_decode( $body, true );
 
-        if ( $code < 200 || $code >= 300 ) {
-            return rest_ensure_response(
-                array(
-                    'success' => false,
-                    'where'   => 'rf_http_status',
-                    'url'     => $remote_url,
-                    'status'  => $code,
-                    'body'    => $body,
-                )
-            );
-        }
-
-        $data = json_decode( $body, true );
         if ( json_last_error() !== JSON_ERROR_NONE ) {
-            return rest_ensure_response(
-                array(
-                    'success' => false,
-                    'where'   => 'rf_bad_json',
-                    'url'     => $remote_url,
-                    'body'    => $body,
-                )
-            );
+            $decoded = null;
         }
 
+        // Very simple, predictable shape for JS: { status, data }.
         return rest_ensure_response(
             array(
-                'success' => true,
-                'url'     => $remote_url,
-                'data'    => $data,
+                'status' => $code,
+                'data'   => $decoded,
             )
         );
     }
 
     /**
      * GET /wp-json/lof-viewer/v1/fpp/status
-     * Proxy to local FPP API endpoint:
-     *   http://10.9.7.102/api/fppd/status
-     *
-     * We return 200 JSON even on error so debugging stays easy.
+     * Proxy to local FPP API endpoint: http://10.9.7.102/api/fppd/status
      */
     public static function handle_fpp_status( \WP_REST_Request $request ) {
         $base = get_option( 'lof_viewer_fpp_base' );
@@ -253,7 +236,6 @@ class LOF_Viewer2_REST {
         }
 
         $base       = untrailingslashit( trim( $base ) );
-        // ✅ Correct FPP API endpoint
         $remote_url = $base . '/api/fppd/status';
 
         $response = wp_remote_get(
@@ -267,7 +249,6 @@ class LOF_Viewer2_REST {
         );
 
         if ( is_wp_error( $response ) ) {
-            // Network/connection/DNS error
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -282,7 +263,6 @@ class LOF_Viewer2_REST {
         $body = wp_remote_retrieve_body( $response );
 
         if ( $code < 200 || $code >= 300 ) {
-            // FPP responded non-2xx
             return rest_ensure_response(
                 array(
                     'success' => false,
@@ -316,7 +296,7 @@ class LOF_Viewer2_REST {
     }
 
     /**
-     * Get RF API base URL from options (with a sensible default)
+     * Get RF API base URL from options (with a sensible default).
      */
     protected static function get_rf_api_base() {
         $base = get_option( self::OPTION_RF_API_BASE );
@@ -330,7 +310,7 @@ class LOF_Viewer2_REST {
     }
 
     /**
-     * Get RF bearer token from options
+     * Get RF bearer token from options.
      */
     protected static function get_rf_bearer_token() {
         $token = get_option( self::OPTION_RF_BEARER_KEY );

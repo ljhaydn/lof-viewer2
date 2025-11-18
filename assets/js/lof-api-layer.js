@@ -58,6 +58,12 @@
       }
     },
 
+    /**
+     * Request a song via WP REST proxy.
+     *
+     * @param {string} songId    Remote Falcon sequence name (e.g. "GhostbustersThemeFallOutBoy101825")
+     * @param {string|null} visitorId  Optional visitor identifier
+     */
     async requestSong(songId, visitorId) {
       if (!this._baseURL) {
         return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
@@ -65,16 +71,21 @@
 
       const url = `${this._baseURL}/request`;
 
+      const payload = {
+        song_id: songId,
+      };
+      if (visitorId) {
+        payload.visitor_id = visitorId;
+      }
+
       try {
+        console.debug('[RFClient] sending requestSong to', url, payload);
+
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ song_id: songId, visitor_id: visitorId }),
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
         });
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
 
         const json = await res.json().catch((err) => {
           console.error('[RFClient] requestSong JSON parse error', err);
@@ -82,6 +93,7 @@
         });
 
         console.debug('[RFClient] requestSong raw JSON', json);
+
         return this._normalizeRequestResponse(json);
       } catch (err) {
         console.error('[RFClient] requestSong failed', err);
@@ -175,21 +187,42 @@
       };
     },
 
+    /**
+     * Normalize the response from /wp-json/lof-viewer/v1/request.
+     *
+     * PHP returns: { status: <http status>, data: <decoded RF JSON or null> }
+     */
     _normalizeRequestResponse(json) {
       if (!json) {
-        return this._error('RF_REQUEST_ERROR', 'Empty response from RF');
+        return {
+          success: false,
+          timestamp: Date.now(),
+          data: null,
+          error: 'Empty response from RF request proxy',
+          errorCode: 'RF_REQUEST_EMPTY',
+        };
       }
 
-      if (json.success === false) {
-        return this._error('RF_REQUEST_ERROR', json.message || 'Request failed');
+      const status = typeof json.status === 'number' ? json.status : null;
+      const data = json.data || null;
+      const ok = status !== null && status >= 200 && status < 300;
+
+      let queuePosition = null;
+      if (data && typeof data.queuePosition === 'number') {
+        queuePosition = data.queuePosition;
+      } else if (data && typeof data.queue_position === 'number') {
+        queuePosition = data.queue_position;
       }
 
       return {
-        success: true,
+        success: ok,
         timestamp: Date.now(),
-        data: json.data || json,
-        error: null,
-        errorCode: null,
+        data: {
+          queuePosition,
+          raw: data,
+        },
+        error: ok ? null : 'Remote Falcon request failed',
+        errorCode: ok ? null : 'RF_REQUEST_FAILED',
       };
     },
 
@@ -215,7 +248,6 @@
         return this._error('CONFIG_ERROR', 'FPP base URL not configured');
       }
 
-      // Call the WP proxy: /wp-json/lof-viewer/v1/fpp/status
       const url = `${this._baseURL}/status`;
 
       try {
@@ -230,7 +262,6 @@
     },
 
     _normalizeStatus(raw) {
-      // raw is whatever /api/fppd/status returns under data
       const d = raw && raw.data ? raw.data : raw || {};
 
       return {
@@ -259,99 +290,23 @@
   };
 
   // ------------------------------
-  // LOFClient – Lights on Falcon plugin endpoints
-  // NEW: For telemetry, speaker control, config
+  // LOFClient – Lights on Falcon plugin endpoints (stubs for now)
   // ------------------------------
   const LOFClient = {
     _baseURL: window.LOF_CONFIG?.lofBaseUrl || '/wp-json/lof/v1',
 
-    /**
-     * Log telemetry event
-     * POST /wp-json/lof/v1/telemetry
-     */
     async logTelemetry(data) {
-      // Stub for now - implement when backend endpoint is ready
       console.debug('[LOFClient] logTelemetry (stubbed):', data);
-      
-      // When ready, uncomment:
-      /*
-      const url = `${this._baseURL}/telemetry`;
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        
-        return { success: true, timestamp: Date.now() };
-      } catch (err) {
-        console.error('[LOFClient] logTelemetry failed', err);
-        return { success: false, error: err.message };
-      }
-      */
-      
       return Promise.resolve({ success: true, timestamp: Date.now() });
     },
 
-    /**
-     * Toggle speaker on/off
-     * POST /wp-json/lof/v1/speaker
-     */
     async toggleSpeakerOn(enabled) {
-      // Stub for now - implement when backend endpoint is ready
       console.debug('[LOFClient] toggleSpeakerOn (stubbed):', enabled);
-      
-      // When ready, uncomment:
-      /*
-      const url = `${this._baseURL}/speaker`;
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled }),
-        });
-        
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        
-        const json = await res.json();
-        return { success: true, data: json, timestamp: Date.now() };
-      } catch (err) {
-        console.error('[LOFClient] toggleSpeakerOn failed', err);
-        return { success: false, error: err.message };
-      }
-      */
-      
       return Promise.resolve({ success: true, timestamp: Date.now() });
     },
 
-    /**
-     * Get LOF configuration
-     * GET /wp-json/lof/v1/config
-     */
     async getConfig() {
-      // Stub for now - implement when backend endpoint is ready
       console.debug('[LOFClient] getConfig (stubbed)');
-      
-      // When ready, uncomment:
-      /*
-      const url = `${this._baseURL}/config`;
-      try {
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        return { success: true, data: json, timestamp: Date.now() };
-      } catch (err) {
-        console.error('[LOFClient] getConfig failed', err);
-        return { success: false, error: err.message };
-      }
-      */
-      
       return Promise.resolve({ success: true, timestamp: Date.now() });
     },
   };
@@ -365,7 +320,6 @@
     LOFClient,
   };
 
-  // ✅ Also expose globals for backwards compatibility
   window.RFClient = RFClient;
   window.FPPClient = FPPClient;
   window.LOFClient = LOFClient;
