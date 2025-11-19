@@ -1,5 +1,5 @@
 /**
- * LOF Viewer V2 - Init Layer (FIXED)
+ * LOF Viewer V2 - Init Layer (FULLY CORRECTED)
  * 
  * Responsibility: Bootstrap and initialize the application
  * - Initial data fetch
@@ -40,14 +40,32 @@ const InitLayer = (() => {
     const loadingEl = document.getElementById('lof-loading');
     if (loadingEl) {
       loadingEl.innerHTML = `
-        <div class="loading-error">
-          <p style="color: #F5222D; font-weight: 500;">⚠ Initialization Failed</p>
-          <p style="font-size: 14px; color: #595959;">${message}</p>
-          <button onclick="location.reload()" style="margin-top: 16px; padding: 8px 16px; border: 1px solid #d9d9d9; border-radius: 4px; background: white; cursor: pointer;">
+        <div class="loading-error" style="text-align: center; padding: 32px;">
+          <p style="color: #F5222D; font-weight: 500; font-size: 18px; margin-bottom: 8px;">⚠ Initialization Failed</p>
+          <p style="font-size: 14px; color: #595959; margin-bottom: 16px;">${message}</p>
+          <button onclick="location.reload()" style="padding: 8px 24px; border: 1px solid #d9d9d9; border-radius: 4px; background: white; cursor: pointer; font-size: 14px;">
             Retry
           </button>
         </div>
       `;
+    }
+  }
+  
+  /**
+   * Render speaker UI based on current state
+   */
+  function renderSpeakerUI(state) {
+    try {
+      // Get flags from ThemeLayer (correct method name)
+      const flags = ThemeLayer.mapSpeakerFlags(state);
+      
+      // Get content from ContentLayer (correct method name)
+      const content = ContentLayer.getSpeakerContent(state, flags);
+      
+      // Render via ViewLayer
+      ViewLayer.renderSpeakerCard(state, flags, content);
+    } catch (err) {
+      console.error('[InitLayer] Error rendering speaker UI:', err);
     }
   }
   
@@ -75,13 +93,13 @@ const InitLayer = (() => {
     
     // 2. Subscribe to state changes
     StateLayer.subscribeToState((state) => {
-      // Render speaker card based on current state
-      const flags = ThemeLayer.getSpeakerFlags(state);
-      const content = ContentLayer.getSpeakerContent(state, flags);
-      ViewLayer.renderSpeakerCard(state, flags, content);
+      // Render speaker UI on every state change
+      renderSpeakerUI(state);
       
       // Detect physical button presses
-      InteractionLayer.detectPhysicalButtonPress(state);
+      if (InteractionLayer.detectPhysicalButtonPress) {
+        InteractionLayer.detectPhysicalButtonPress(state);
+      }
     });
     
     // 3. Initialize interaction handlers
@@ -89,9 +107,7 @@ const InitLayer = (() => {
     
     // 4. Initial render
     const initialState = StateLayer.getState();
-    const initialFlags = ThemeLayer.getSpeakerFlags(initialState);
-    const initialContent = ContentLayer.getSpeakerContent(initialState, initialFlags);
-    ViewLayer.renderSpeakerCard(initialState, initialFlags, initialContent);
+    renderSpeakerUI(initialState);
     
     // 5. Set up status polling (every 5 seconds)
     _statusPollInterval = setInterval(async () => {
@@ -150,6 +166,24 @@ const InitLayer = (() => {
     console.log('[InitLayer] LOF_CONFIG:', window.LOF_CONFIG);
     
     try {
+      // Verify all required layers are loaded
+      const requiredLayers = [
+        'LOFClient',
+        'StateLayer', 
+        'ThemeLayer',
+        'ContentLayer',
+        'ViewLayer',
+        'InteractionLayer'
+      ];
+      
+      const missingLayers = requiredLayers.filter(layer => !window[layer]);
+      
+      if (missingLayers.length > 0) {
+        throw new Error(`Missing required layers: ${missingLayers.join(', ')}`);
+      }
+      
+      console.log('[InitLayer] All layers loaded successfully');
+      
       // Initialize theme first (no async)
       initTheme();
       
@@ -160,11 +194,11 @@ const InitLayer = (() => {
       hideLoadingScreen();
       
       _initialized = true;
-      console.log('[InitLayer] ✅ All systems initialized');
+      console.log('[InitLayer] ✅ All systems initialized successfully');
       
     } catch (err) {
       console.error('[InitLayer] ❌ Initialization failed:', err);
-      showErrorState(err.message || 'Unknown error');
+      showErrorState(err.message || 'Unknown error occurred');
     }
   }
   
