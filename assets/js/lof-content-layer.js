@@ -1,400 +1,325 @@
-/**
- * LOF Viewer V2 - Content Layer
- * 
- * Responsibility: All user-facing text/copy
- * - Mode-aware (Halloween, Christmas, neutral)
- * - No business logic
- * - No DOM manipulation
- * - No API calls
- * - Returns structured content objects
- */
+// assets/js/lof-content-layer.js
+(function (window) {
+  'use strict';
 
-const ContentLayer = (() => {
-  
-  /**
-   * Get speaker content for current state and mode
-   * @param {Object} state - Current application state
-   * @param {Object} flags - Theme flags from ThemeLayer
-   * @returns {Object} All text content for speaker card
-   */
-  function getSpeakerContent(state, flags) {
-    const mode = state.themeMode || 'neutral';
-    const displayMode = flags.speaker.displayMode;
-    
-    return {
-      // Card title
-      cardTitle: _getCardTitle(displayMode, mode),
-      
-      // Primary button
-      primaryButtonLabel: _getPrimaryButtonLabel(displayMode, flags, mode),
-      
-      // Extension button (only shown in extension window)
-      extensionButtonLabel: _getExtensionButtonLabel(mode),
-      
-      // Status message (main message below title)
-      statusMessage: _getStatusMessage(displayMode, state, flags, mode),
-      
-      // Helper text (additional context)
-      helperText: _getHelperText(displayMode, state, flags, mode),
-      
-      // Countdown label (when active)
-      countdownLabel: _getCountdownLabel(state, flags),
-      
-      // Alternative audio options
-      alternatives: {
-        fmLabel: `📻 FM ${state.speaker.config.fmFrequency}`,
-        streamLabel: '🌐 Live Audio Stream',
-        fmHint: 'Listen in your car',
-        streamHint: 'Listen from anywhere'
+  const ContentLayer = {
+    _currentTheme: 'christmas',
+
+    _content: {
+      status: {
+        LOADING: {
+          default: 'Connecting to the light show...',
+          christmas: "Connecting to Santa's workshop...",
+          halloween: 'Awakening the spirits...',
+        },
+        ACTIVE: {
+          default: 'Show is live!',
+          christmas: 'The magic is happening! ✨',
+          halloween: 'The show rises...',
+        },
+        DEGRADED: {
+          default: 'Limited connectivity',
+          christmas: "Connection wobbling like Rudolph's nose",
+          halloween: 'The connection flickers...',
+        },
+        OFFLINE: {
+          default: 'Unable to connect to show',
+          christmas: 'Lost in a snowstorm',
+          halloween: 'Vanished into the darkness',
+        },
+        ENDED: {
+          default: 'Show has ended for tonight',
+          christmas: 'Santa has left the building! See you tomorrow! 🎅',
+          halloween: 'The spirits have returned to rest',
+        },
       },
-      
-      // Toast messages
-      toasts: _getToastMessages(mode),
-      
-      // Proximity hints
-      proximityHint: _getProximityHint(flags.speaker.proximityLikelihood, mode),
-      
-      // Weather notice (future)
-      weatherNotice: null,
-      
-      // Session stats (future)
-      sessionStats: null
-    };
-  }
-  
-  /**
-   * Get card title based on display mode
-   */
-  function _getCardTitle(displayMode, mode) {
-    // Mode-aware titles
-    if (mode === 'halloween') {
-      if (displayMode === 'locked') {
-        return '🎃 Halloween Spectacular!';
-      }
-      return '👻 Need Spooky Sounds?';
-    }
-    
-    if (mode === 'christmas') {
-      if (displayMode === 'locked') {
-        return '🎄 Christmas Magic!';
-      }
-      return '🎅 Need Festive Sounds?';
-    }
-    
-    // Neutral mode
-    if (displayMode === 'locked') {
-      return '🔒 Event Mode';
-    }
-    
-    if (displayMode === 'curfew') {
-      return '🌙 Late Night Audio';
-    }
-    
-    if (displayMode === 'unavailable') {
-      return '⚠️ Speaker Unavailable';
-    }
-    
-    if (displayMode === 'waiting') {
-      return '⏸️ Show Paused';
-    }
-    
-    return '🔊 Need Sound?';
-  }
-  
-  /**
-   * Get primary button label
-   */
-  function _getPrimaryButtonLabel(displayMode, flags, mode) {
-    if (displayMode === 'off') {
-      return '🔊 Turn On Speakers';
-    }
-    
-    if (displayMode === 'active') {
-      if (flags.speaker.showCountdown) {
-        return `🔊 On for ${flags.speaker.countdownValue}`;
-      }
-      return '🔊 Speakers Active';
-    }
-    
-    if (displayMode === 'extension') {
-      return '🔊 Still Here? +5 Minutes';
-    }
-    
-    if (displayMode === 'locked') {
-      if (mode === 'halloween') {
-        return '🔒 Locked On for Halloween';
-      }
-      if (mode === 'christmas') {
-        return '🔒 Locked On for Christmas';
-      }
-      return '🔒 Speakers Locked On';
-    }
-    
-    if (displayMode === 'curfew') {
-      return '🔇 Speakers Off (Curfew)';
-    }
-    
-    if (displayMode === 'unavailable') {
-      return '⚠️ Unavailable';
-    }
-    
-    if (displayMode === 'waiting') {
-      return '⏸️ Show Not Active';
-    }
-    
-    return '🔊 Turn On Speakers';
-  }
-  
-  /**
-   * Get extension button label
-   */
-  function _getExtensionButtonLabel(mode) {
-    if (mode === 'halloween') {
-      return '👻 Still Here? +5 Minutes';
-    }
-    if (mode === 'christmas') {
-      return '🎄 Still Here? +5 Minutes';
-    }
-    return '⏱️ Still Here? +5 Minutes';
-  }
-  
-  /**
-   * Get main status message
-   */
-  function _getStatusMessage(displayMode, state, flags, mode) {
-    if (displayMode === 'locked') {
-      return state.speaker.message || 'Speakers are on continuously for tonight\'s event!';
-    }
-    
-    if (displayMode === 'curfew') {
-      const hour = state.speaker.config.noiseCurfewHour;
-      return `Outdoor speakers end at ${hour}:00 to be good neighbors!`;
-    }
-    
-    if (displayMode === 'unavailable') {
-      return 'Speaker control is temporarily unavailable.';
-    }
-    
-    if (displayMode === 'waiting') {
-      return 'Speakers are only available when the show is actively playing.';
-    }
-    
-    if (displayMode === 'active') {
-      if (state.speaker.currentSong) {
-        return `🎵 Now playing: "${state.speaker.currentSong}"`;
-      }
-      return '🎵 Show is playing';
-    }
-    
-    if (displayMode === 'extension') {
-      return `⏱️ ${flags.speaker.countdownValue} remaining`;
-    }
-    
-    // Off mode
-    if (state.speaker.currentSong) {
-      return `🎵 "${state.speaker.currentSong}" is playing`;
-    }
-    return '🎵 Show is live right now!';
-  }
-  
-  /**
-   * Get helper text (additional context)
-   */
-  function _getHelperText(displayMode, state, flags, mode) {
-    if (displayMode === 'locked') {
-      return 'Viewer control is disabled during this event.';
-    }
-    
-    if (displayMode === 'curfew') {
-      return `Listen via FM ${state.speaker.config.fmFrequency} or the live stream instead.`;
-    }
-    
-    if (displayMode === 'unavailable') {
-      return 'Try again in a moment, or use FM/stream options below.';
-    }
-    
-    if (displayMode === 'waiting') {
-      return 'The show will resume shortly. Check back in a few minutes!';
-    }
-    
-    if (displayMode === 'active') {
-      return 'Enjoying the show? Button will become available in the last 30 seconds if you need more time.';
-    }
-    
-    if (displayMode === 'extension') {
-      return 'Tap the button above to extend your session by 5 more minutes.';
-    }
-    
-    // Off mode
-    return 'Turn on outdoor speakers if you\'re near the show!';
-  }
-  
-  /**
-   * Get countdown label
-   */
-  function _getCountdownLabel(state, flags) {
-    if (!flags.speaker.showCountdown) {
-      return null;
-    }
-    
-    return `⏱️ ${flags.speaker.countdownValue} remaining`;
-  }
-  
-  /**
-   * Get proximity hint message
-   */
-  function _getProximityHint(likelihood, mode) {
-    if (likelihood > 0.7) {
-      // High confidence they're on-site
-      return {
-        show: true,
-        emphasis: 'high',
-        message: 'Tap above to turn on outdoor speakers!',
-        alternative: 'Not nearby? Try FM or the stream below.'
-      };
-    }
-    
-    if (likelihood > 0.4) {
-      // Medium confidence
-      return {
-        show: true,
-        emphasis: 'medium',
-        message: 'Turn on speakers if you\'re near the show.',
-        alternative: 'Not nearby? Use FM or stream below.'
-      };
-    }
-    
-    // Low confidence - probably remote
-    if (mode === 'halloween') {
-      return {
-        show: true,
-        emphasis: 'low',
-        message: 'Visiting from afar? We\'d love to see you in person!',
-        alternative: 'For now, enjoy via FM or stream below. 👻'
-      };
-    }
-    
-    if (mode === 'christmas') {
-      return {
-        show: true,
-        emphasis: 'low',
-        message: 'Considering visiting? The show is magical in person!',
-        alternative: 'For now, enjoy via FM or stream below. 🎄'
-      };
-    }
-    
-    return {
-      show: true,
-      emphasis: 'low',
-      message: 'Outdoor speakers are for on-site visitors.',
-      alternative: 'Not nearby? Use FM or stream below.'
-    };
-  }
-  
-  /**
-   * Get toast messages for various events
-   */
-  function _getToastMessages(mode) {
-    return {
-      // Success messages
-      enableSuccess: mode === 'halloween' 
-        ? '🎃 Speakers summoned! The show is louder now.'
-        : mode === 'christmas'
-        ? '🎄 Speakers on! Let the festive music fill the air.'
-        : '🔊 Speakers on. Enjoy the music!',
-      
-      extendSuccess: mode === 'halloween'
-        ? '👻 More spooky sounds! Extended for 5 minutes.'
-        : mode === 'christmas'
-        ? '🎅 More holiday magic! Extended for 5 minutes.'
-        : '⏱️ Speakers extended! Enjoy 5 more minutes.',
-      
-      // Info messages
-      alreadyOn: 'Speakers are already rockin\'!',
-      
-      physicalButtonDetected: '🔊 Speakers turned on by show attendee',
-      
-      sessionEnding: 'Speakers will turn off soon. Hit the button to extend!',
-      
-      // Error messages - Gating denials
-      gatingDenied: {
-        fppOffline: 'Speaker control is temporarily unavailable. Try FM or stream!',
-        
-        nothingPlaying: 'Speakers are only available when the show is playing. Check back soon!',
-        
-        noiseCurfew: (hour, fm) => `Outdoor speakers end at ${hour}:00 to be good neighbors. Try FM ${fm} or the stream!`,
-        
-        lockedByEvent: (message) => message || 'Speakers are locked on for tonight\'s event.',
-        
-        maxSession: 'Maximum session duration reached (15 minutes). Take a break, then come back!'
+
+      statusWarnings: {
+        DEGRADED: {
+          default: 'Connection unstable. Some features may be limited.',
+          christmas: 'The workshop connection is flickering...',
+          halloween: 'The veil between worlds weakens...',
+        },
+        OFFLINE: {
+          default: 'Unable to reach the show. Trying to reconnect...',
+          christmas: "Can't reach the North Pole right now...",
+          halloween: 'Lost in the darkness...',
+        },
       },
-      
-      // Generic error
-      error: 'Oops! Couldn\'t connect to speaker control. Try again in a moment?',
-      
-      // Extension errors
-      extensionTooEarly: 'Extension button will appear in the last 30 seconds.',
-      
-      noActiveSession: 'No active speaker session to extend.',
-      
-      // FPP errors
-      fppUnreachable: 'Can\'t reach speaker controller. Try FM or stream instead!',
-      
-      // Weather (future)
-      weatherHold: '⛈️ Show paused due to weather. Stream is still live!',
-      
-      // Thank you (subtle, not shown to everyone)
-      sessionComplete: 'Thanks for enjoying the show! Come back tomorrow night!'
-    };
-  }
-  
-  /**
-   * Get error message from API error code
-   */
-  function getErrorMessage(errorCode, state) {
-    const toasts = _getToastMessages(state.themeMode);
-    
-    switch (errorCode) {
-      case 'FPP_UNREACHABLE':
-        return toasts.gatingDenied.fppOffline;
-      
-      case 'NOT_PLAYING':
-        return toasts.gatingDenied.nothingPlaying;
-      
-      case 'NOISE_CURFEW':
-        return toasts.gatingDenied.noiseCurfew(
-          state.speaker.config.noiseCurfewHour,
-          state.speaker.config.fmFrequency
-        );
-      
-      case 'OVERRIDE_LOCKED':
-        return toasts.gatingDenied.lockedByEvent(state.speaker.message);
-      
-      case 'MAX_SESSION_REACHED':
-        return toasts.gatingDenied.maxSession;
-      
-      case 'EXTENSION_TOO_EARLY':
-        return toasts.extensionTooEarly;
-      
-      case 'NO_ACTIVE_SESSION':
-        return toasts.noActiveSession;
-      
-      default:
-        return toasts.error;
-    }
-  }
-  
-  // Public API
-  return {
-    getSpeakerContent,
-    getErrorMessage
+
+      loading: {
+        request: {
+          default: 'Adding your song to the queue...',
+          christmas: "Sending request to Santa's elves...",
+          halloween: 'Summoning your selection...',
+        },
+        surprise: {
+          default: 'Picking a surprise song...',
+          christmas: 'Shaking the present...',
+          halloween: 'Conjuring a mystery...',
+        },
+        retry: {
+          default: 'Reconnecting...',
+          christmas: "Fixing the sleigh's radio...",
+          halloween: 'Calling through the veil...',
+        },
+      },
+
+      success: {
+        request: {
+          default: 'Your song is in the queue at position {position}!',
+          christmas: '🎄 Your song is queued at #{position}!',
+          halloween: '👻 Your song rises to position {position}.',
+        },
+        surprise: {
+          default: "Surprise! '{title}' is queued at position {position}!",
+          christmas: "🎁 Unwrapped: '{title}' at position {position}!",
+          halloween: "🎃 Revealed: '{title}' at position {position}!",
+        },
+      },
+
+      errors: {
+        COOLDOWN: {
+          default: 'Please wait {remainingSeconds} seconds before requesting another song.',
+          christmas: 'The elves need a break! Wait {remainingSeconds} seconds.',
+          halloween: 'The spirits are tired. Wait {remainingSeconds} seconds.',
+        },
+        DUPLICATE: {
+          default: 'This song is already in the queue.',
+          christmas: 'That song is already wrapped under the tree!',
+          halloween: 'That spell has already been cast!',
+        },
+        UNAVAILABLE: {
+          default: 'This song is not available right now.',
+          christmas: "Santa's checking his list on this one...",
+          halloween: 'This song sleeps in its coffin tonight.',
+        },
+        RATE_LIMIT: {
+          default: 'Too many requests. Please slow down.',
+          christmas: 'Whoa there! Even Rudolph needs to pace himself!',
+          halloween: 'Too much magic at once!',
+        },
+        NO_SONGS: {
+          default: 'No songs available for Surprise Me.',
+          christmas: 'The toy workshop is empty! Check back soon.',
+          halloween: 'The spell book is empty...',
+        },
+        UNKNOWN: {
+          default: 'Something went wrong. Please try again.',
+          christmas: 'A gremlin got in the gears! Try again.',
+          halloween: 'The magic misfired. Try again.',
+        },
+        SPEAKER_FAILED: {
+          default: 'Unable to toggle speaker.',
+          christmas: "The reindeer aren't listening!",
+          halloween: "The speakers won't obey...",
+        },
+      },
+
+      labels: {
+        nowPlaying: {
+          default: 'Now Playing',
+          christmas: '🎵 On the Radio',
+          halloween: '🎶 Now Haunting',
+        },
+        upNext: {
+          default: 'Up Next',
+          christmas: 'Next Gift',
+          halloween: 'Next Spirit',
+        },
+        queue: {
+          default: 'Request Queue',
+          christmas: "Santa's List",
+          halloween: 'The Summoning Order',
+        },
+        surpriseMe: {
+          default: 'Surprise Me!',
+          christmas: 'Shake the Present! 🎁',
+          halloween: 'Summon a Mystery! 👻',
+        },
+        noNextTrack: {
+          default: 'Tuning the lights...',
+          christmas: 'Preparing the next gift...',
+          halloween: 'Summoning the next spirit...',
+        },
+        emptyGrid: {
+          default: 'No songs available right now. Check back soon!',
+          christmas: "Santa's elves are restocking the workshop...",
+          halloween: 'The spell book is being updated...',
+        },
+      },
+
+      aria: {
+        tile: {
+          available: 'Request {title} by {artist}',
+          unavailable: '{title} by {artist}, not available',
+        },
+        nowPlaying: 'Currently playing {title} by {artist}',
+        upNext: 'Up next: {title} by {artist}',
+        queueItem: 'Request number {position}: {title} by {requester}',
+      },
+
+      speaker: {
+        enabled: {
+          default: 'Speaker On',
+          christmas: 'Hear the Magic! 🔊',
+          halloween: 'Hear the Spirits! 🔊',
+        },
+        disabled: {
+          default: 'Speaker Off',
+          christmas: 'Silent Night 🔇',
+          halloween: 'Silence 🔇',
+        },
+        disabledByHeuristic: {
+          default: 'Speaker temporarily disabled',
+          christmas: 'Shh... neighbors are sleeping 🌙',
+          halloween: 'The spirits are resting 🌙',
+        },
+        helperText: {
+          default: 'Tap to play the speakers out front when the show is running.',
+          christmas: 'Tap to hear the music outside! 🎶',
+          halloween: 'Tap to unleash the sounds... 🎵',
+        },
+      },
+    },
+
+    setTheme(themeName) {
+      this._currentTheme = themeName || 'christmas';
+    },
+
+    getMessage(category, key, context = {}) {
+      const theme = this._currentTheme;
+      const cat = this._content[category] || {};
+      const entry = cat[key] || {};
+      let message = entry[theme] || entry.default || `[Missing content: ${category}.${key}]`;
+
+      Object.entries(context).forEach(([k, v]) => {
+        message = message.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+      });
+
+      return message;
+    },
+
+    getErrorMessage(code, context = {}) {
+      return this.getMessage('errors', code || 'UNKNOWN', context);
+    },
+
+    getCategoryLabel(category) {
+      const key = category || 'general';
+      if (!this._content.categories) return key;
+      return this.getMessage('categories', key);
+    },
+
+    getTileAriaLabel(title, artist, isAvailable) {
+      const templateKey = isAvailable ? 'available' : 'unavailable';
+      const tpl = this._content.aria?.tile?.[templateKey] || 'Request {title} by {artist}';
+      return tpl.replace('{title}', title).replace('{artist}', artist || '');
+    },
+
+    getSpeakerLabel(enabled) {
+      return this.getMessage('speaker', enabled ? 'enabled' : 'disabled');
+    },
+
+    getSpeakerAriaLabel(state, reason) {
+      if (state === 'disabled') {
+        return this.getMessage('speaker', 'disabledByHeuristic');
+      }
+      return this.getSpeakerLabel(state === 'on');
+    },
+
+    getRequesterLabel(name) {
+      if (!name || name === 'Anonymous' || name === 'Guest') {
+        return this._currentTheme === 'christmas' ? '🎅' : '👻';
+      }
+      return name;
+    },
+
+    // ========================================
+    // NEW METHODS REQUIRED BY VIEW LAYER
+    // ========================================
+
+    /**
+     * Get status panel copy
+     * Called by ViewLayer.renderStatusPanel()
+     * Returns { text, indicatorClass, warning }
+     */
+    getStatusCopy(derived) {
+      const state = derived.state || 'LOADING';
+      const isInDegradedMode = derived.isInDegradedMode || false;
+
+      const text = this.getMessage('status', state);
+
+      // Map state to indicator class
+      const indicatorClass = `lof-state--${state.toLowerCase()}`;
+
+      // Show warning for DEGRADED or OFFLINE
+      let warning = '';
+      if (state === 'DEGRADED' || state === 'OFFLINE') {
+        warning = this.getMessage('statusWarnings', state);
+      }
+
+      return {
+        text,
+        indicatorClass,
+        warning,
+      };
+    },
+
+    /**
+     * Get "no next track" label
+     * Called by ViewLayer.renderNowNext()
+     * Returns string
+     */
+    getNoNextTrackLabel() {
+      return this.getMessage('labels', 'noNextTrack');
+    },
+
+    /**
+     * Get empty grid message
+     * Called by ViewLayer.renderSongGrid()
+     * Returns string
+     */
+    getEmptyGridMessage() {
+      return this.getMessage('labels', 'emptyGrid');
+    },
+
+    /**
+     * Get speaker button copy
+     * Called by ViewLayer.renderSpeakerButton()
+     * Returns { enabled, buttonLabel, title, helper }
+     */
+    getSpeakerCopy(speakerState) {
+      const enabled = speakerState.enabled || false;
+      const disabledByHeuristic = speakerState.disabledByHeuristic || false;
+
+      let buttonLabel = '';
+      let title = '';
+      let helper = this.getMessage('speaker.helperText', this._currentTheme) || 
+                   this._content.speaker.helperText?.default || 
+                   'Tap to play the speakers out front when the show is running.';
+
+      if (disabledByHeuristic) {
+        // Speaker is disabled by system
+        buttonLabel = this.getMessage('speaker', 'disabledByHeuristic');
+        title = buttonLabel;
+      } else if (enabled) {
+        // Speaker is on
+        buttonLabel = this.getMessage('speaker', 'enabled');
+        title = buttonLabel;
+      } else {
+        // Speaker is off but available
+        buttonLabel = this.getMessage('speaker', 'disabled');
+        title = buttonLabel;
+      }
+
+      return {
+        enabled: !disabledByHeuristic,
+        buttonLabel,
+        title,
+        helper,
+      };
+    },
   };
-  
-})();
 
-// Export
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ContentLayer;
-} else {
   window.ContentLayer = ContentLayer;
-}
+})(window);
