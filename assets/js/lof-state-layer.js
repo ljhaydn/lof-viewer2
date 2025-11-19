@@ -1,251 +1,498 @@
-// assets/js/lof-state-layer.js
-(function (window) {
-  'use strict';
+/**
+ * LOF Viewer V2 - State Layer
+ * 
+ * Responsibility: Central state management
+ * - Single source of truth for all application state
+ * - Gating logic (pure functions)
+ * - Derived state computation
+ * - No DOM manipulation
+ * - No API calls (reads from API layer results)
+ */
 
-  const StateLayer = {
-    _state: null,
-    _subscribers: [],
-    _history: [],
-
-    init(initialConfig) {
-      this._state = {
-        currentState: 'LOADING',
-        previousState: null,
-        stateEnteredAt: Date.now(),
-
-        rfData: null,
-        fppData: null,
-        lofConfig: initialConfig || null,
-
-        lastRFUpdate: 0,
-        lastFPPUpdate: 0,
-        lastConfigUpdate: initialConfig ? Date.now() : 0,
-
-        errors: { rf: null, fpp: null, config: null },
-        consecutiveFailures: { rf: 0, fpp: 0 },
-
-        visitorId: this._generateVisitorId(),
-        sessionStarted: Date.now(),
-        interactionCount: 0,
-
-        features: {
-          requestsEnabled: false,
-          surpriseMeEnabled: false,
-          speakerControlEnabled: false,
-          chaosMode: false,
-        },
-
-        speaker: {
-          enabled: false,
-          userToggled: false,
-          disabledByHeuristic: false,
-          disabledReason: null,
-        },
-
-        recentRequest: null,
-
-        _version: '1.0',
-        _debug: !!window.LOF_CONFIG?.debug,
-      };
-
-      this._recordHistory('INIT', null, 'LOADING');
-    },
-
-    getState() {
-      return Object.freeze({ ...this._state });
-    },
-
-    setState(updates, reason) {
-      const oldStateName = this._state.currentState;
-
-      this._state = {
-        ...this._state,
-        ...updates,
-        _lastUpdated: Date.now(),
-      };
-
-      if (this._state.currentState !== oldStateName) {
-        this._state.previousState = oldStateName;
-        this._state.stateEnteredAt = Date.now();
-        this._recordHistory(reason || 'STATE_CHANGE', oldStateName, this._state.currentState);
-      }
-
-      this._notifySubscribers();
-
-      if (this._state._debug) {
-        console.log('[StateLayer] Update:', reason, updates);
+const StateLayer = (() => {
+  
+  // Private state
+  let _state = {
+    // Speaker state
+    speaker: {
+      enabled: false,
+      remainingSeconds: 0,
+      override: false,
+      mode: 'automatic',
+      lastStatusCheck: 0,
+      lastUpdatedAt: 0,
+      message: '',
+      source: null,
+      sessionStartedAt: 0, // Milliseconds (JS time)
+      fppPlaying: false,
+      currentSong: null,
+      config: {
+        fmFrequency: '107.7',
+        streamUrl: '',
+        noiseCurfewHour: 22,
+        noiseCurfewEnabled: true,
+        noiseCurfewOverride: false
       }
     },
-
-    subscribeToState(callback) {
-      this._subscribers.push(callback);
-      return () => {
-        this._subscribers = this._subscribers.filter((cb) => cb !== callback);
-      };
+    
+    // FPP status
+    fppStatus: {
+      status: 'unknown', // 'playing' | 'idle' | 'stopped' | 'unreachable'
+      currentSequence: null,
+      secondsRemaining: 0,
+      playlistName: null
     },
-
-    determineStateFromData(rfResponse, fppResponse, consecutiveFailures) {
-      const now = Date.now();
-      const rfAge = now - (rfResponse?.timestamp || 0);
-      const fppAge = now - (fppResponse?.timestamp || 0);
-
-      if (consecutiveFailures.rf >= 3 && consecutiveFailures.fpp >= 3) {
-        return 'OFFLINE';
-      }
-
-      if (consecutiveFailures.rf >= 2 || consecutiveFailures.fpp >= 2) {
-        return 'DEGRADED';
-      }
-
-      if (rfAge > 60000 || fppAge > 60000) {
-        return 'DEGRADED';
-      }
-
-      if (rfResponse?.data?.showStatus === 'ended') {
-        return 'ENDED';
-      }
-
-      if (rfResponse?.success && fppResponse?.success) {
-        return 'ACTIVE';
-      }
-
-      return 'LOADING';
+    
+    // RF data
+    rfData: {
+      viewerControlEnabled: false,
+      mode: 'NONE', // 'JUKEBOX' | 'VOTING' | 'NONE'
+      preferences: {},
+      sequences: [],
+      queue: [],
+      playingNow: null,
+      playingNext: null,
+      playingNextFromSchedule: null
     },
-
-    getDerivedState() {
-      const state = this._state;
-      const now = Date.now();
-
-      const shouldShowRequestButton =
-        state.currentState === 'ACTIVE' &&
-        (state.features.requestsEnabled || state.lofConfig?.features?.requestsEnabled) &&
-        state.rfData?.requestsEnabled === true;
-
-      const shouldShowSurpriseMe =
-        state.currentState === 'ACTIVE' &&
-        (state.features.surpriseMeEnabled || state.lofConfig?.features?.surpriseMeEnabled);
-
-      const shouldShowSpeakerButton =
-        (state.features.speakerControlEnabled || state.lofConfig?.features?.speakerControlEnabled) &&
-        state.currentState !== 'OFFLINE';
-
-      const shouldShowQueue = !!(state.rfData?.queue && state.rfData.queue.length > 0);
-      const shouldShowGrid =
-        state.currentState === 'ACTIVE' &&
-        state.rfData?.availableSongs &&
-        state.rfData.availableSongs.length > 0;
-
-      const isShowActive = state.rfData?.showStatus === 'active';
-      const isInDegradedMode = state.currentState === 'DEGRADED';
-
-      const isDataFresh = now - state.lastRFUpdate < 30000;
-
-      // FIXED: Removed global cooldown check - cooldowns are now per-song in InteractionLayer
-      // This matches v1 behavior where users can request different songs with only per-song cooldowns
-      const canMakeRequest = state.currentState === 'ACTIVE';
-
-      // FIXED: This is no longer used for blocking requests, kept for display purposes only
-      const cooldownRemaining = 0;
-
-      return {
-        shouldShowRequestButton,
-        shouldShowSpeakerButton,
-        shouldShowSurpriseMe,
-        shouldShowQueue,
-        shouldShowGrid,
-        isShowActive,
-        isDataFresh,
-        isInDegradedMode,
-        canMakeRequest,
-        cooldownRemaining,
-        displayStatus: this._getDisplayStatus(state),
-        primaryAction: shouldShowRequestButton ? 'REQUEST_SONG' : shouldShowSurpriseMe ? 'SURPRISE_ME' : null,
-        dataAge: {
-          rf: now - state.lastRFUpdate,
-          fpp: now - state.lastFPPUpdate,
-        },
-        healthScore: this._computeHealthScore(state),
-      };
+    
+    // Computed "Up Next" based on priority
+    upNext: null,
+    
+    // Now Playing
+    nowPlaying: null,
+    
+    // Show schedule info
+    schedule: {
+      showActive: false,
+      nextShowStart: null
     },
-
-    getStateHistory() {
-      return [...this._history];
-    },
-
-    dumpState() {
-      return JSON.stringify(
-        {
-          state: this._state,
-          derived: this.getDerivedState(),
-          history: this._history.slice(-10),
-        },
-        null,
-        2,
-      );
-    },
-
-    // internal helpers
-    _notifySubscribers() {
-      const snapshot = this.getState();
-      this._subscribers.forEach((cb) => {
-        try {
-          cb(snapshot);
-        } catch (e) {
-          console.error('[StateLayer] subscriber error', e);
-        }
-      });
-    },
-
-    _getDisplayStatus(state) {
-      switch (state.currentState) {
-        case 'LOADING':
-          return 'Connecting to show...';
-        case 'ACTIVE':
-          return 'Show is live!';
-        case 'DEGRADED':
-          return 'Limited connectivity';
-        case 'OFFLINE':
-          return 'Unable to connect';
-        case 'ENDED':
-          return 'Show has ended';
-        default:
-          return 'Unknown';
-      }
-    },
-
-    _computeHealthScore(state) {
-      let score = 100;
-
-      if (state.errors.rf) score -= 20;
-      if (state.errors.fpp) score -= 20;
-
-      const now = Date.now();
-      const rfAge = now - state.lastRFUpdate;
-      const fppAge = now - state.lastFPPUpdate;
-
-      if (rfAge > 30000) score -= 15;
-      if (rfAge > 60000) score -= 15;
-      if (fppAge > 60000) score -= 15;
-
-      score -= state.consecutiveFailures.rf * 5;
-      score -= state.consecutiveFailures.fpp * 5;
-
-      return Math.max(0, score);
-    },
-
-    _recordHistory(reason, fromState, toState) {
-      this._history.push({
-        timestamp: Date.now(),
-        reason,
-        transition: `${fromState} -> ${toState}`,
-      });
-      if (this._history.length > 50) this._history.shift();
-    },
-
-    _generateVisitorId() {
-      return `visitor_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    },
+    
+    // Current viewer state (for future state machine integration)
+    currentState: 'INITIAL_LOAD',
+    
+    // Theme mode
+    themeMode: 'neutral', // 'halloween' | 'christmas' | 'neutral'
+    
+    // User context for proximity estimation
+    userContext: {
+      pageLoadTime: Date.now(),
+      isMobile: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
+      cfCountry: null,
+      cfRegion: null,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      firstActionTime: null,
+      actionCount: 0
+    }
   };
+  
+  // Subscribers
+  let _subscribers = [];
+  
+  // State history (for debugging)
+  let _stateHistory = [];
+  const MAX_HISTORY = 50;
+  
+  /**
+   * Get current state (immutable copy)
+   */
+  function getState() {
+    return JSON.parse(JSON.stringify(_state));
+  }
+  
+  /**
+   * Set speaker state from API response
+   * CRITICAL FIX: sessionStartedAt comes from PHP as seconds, convert to milliseconds
+   */
+  function setSpeakerState(apiResponse) {
+    if (!apiResponse.success || !apiResponse.data) {
+      console.warn('[StateLayer] Invalid speaker API response', apiResponse);
+      return;
+    }
+    
+    const now = Date.now();
+    const data = apiResponse.data;
+    
+    _state.speaker = {
+      enabled: data.enabled,
+      remainingSeconds: data.remainingSeconds || 0,
+      override: data.override || false,
+      mode: data.mode || 'automatic',
+      lastStatusCheck: now,
+      lastUpdatedAt: now,
+      message: data.message || '',
+      source: data.source || null,
+      // CRITICAL FIX: PHP sends time() (seconds), convert to milliseconds
+      sessionStartedAt: data.sessionStartedAt ? data.sessionStartedAt * 1000 : 0,
+      fppPlaying: data.fppPlaying || false,
+      currentSong: data.currentSong || null,
+      config: {
+        fmFrequency: data.config?.fmFrequency || '107.7',
+        streamUrl: data.config?.streamUrl || '',
+        noiseCurfewHour: data.config?.noiseCurfewHour || 22,
+        noiseCurfewEnabled: data.config?.noiseCurfewEnabled !== false,
+        noiseCurfewOverride: data.config?.noiseCurfewOverride || false
+      }
+    };
+    
+    // Update FPP status from speaker response
+    if (data.fppPlaying !== undefined) {
+      _state.fppStatus.status = data.fppPlaying ? 'playing' : 'idle';
+      _state.fppStatus.currentSequence = data.currentSong;
+    }
+    
+    // Update schedule info
+    if (data.scheduleInfo) {
+      _state.schedule = {
+        showActive: data.scheduleInfo.showActive || false,
+        nextShowStart: data.scheduleInfo.nextShowStart || null
+      };
+    }
+    
+    _recordStateChange('SPEAKER_STATE_UPDATED');
+    _notifySubscribers();
+  }
+  
+  /**
+   * Set RF show state from API response
+   * Normalizes RF data and computes Up Next
+   */
+  function setShowState(apiResponse) {
+    if (!apiResponse.success || !apiResponse.data) {
+      console.warn('[StateLayer] Invalid RF API response', apiResponse);
+      return;
+    }
+    
+    const data = apiResponse.data;
+    
+    // Store normalized RF data
+    _state.rfData = {
+      viewerControlEnabled: data.viewerControlEnabled || false,
+      mode: data.mode || 'NONE',
+      preferences: data.preferences || {},
+      sequences: data.sequences || [],
+      queue: data.queue || [],
+      playingNow: data.playingNow,
+      playingNext: data.playingNext,
+      playingNextFromSchedule: data.playingNextFromSchedule
+    };
+    
+    // Compute Now Playing
+    _state.nowPlaying = data.playingNow;
+    
+    // Compute Up Next based on priority:
+    // 1. First queue item (if any)
+    // 2. Else playingNext
+    // 3. Else playingNextFromSchedule
+    if (data.queue && data.queue.length > 0) {
+      _state.upNext = data.queue[0].sequence;
+    } else if (data.playingNext) {
+      _state.upNext = data.playingNext;
+    } else if (data.playingNextFromSchedule) {
+      _state.upNext = data.playingNextFromSchedule;
+    } else {
+      _state.upNext = null;
+    }
+    
+    _recordStateChange('RF_SHOW_STATE_UPDATED');
+    _notifySubscribers();
+  }
+  
+  /**
+   * Set FPP status from API response
+   */
+  function setFPPStatus(apiResponse) {
+    if (!apiResponse.success || !apiResponse.data) {
+      console.warn('[StateLayer] Invalid FPP API response', apiResponse);
+      _state.fppStatus.status = 'unreachable';
+      _notifySubscribers();
+      return;
+    }
+    
+    const data = apiResponse.data;
+    
+    _state.fppStatus = {
+      status: data.status || 'unknown',
+      currentSequence: data.currentSequence || null,
+      secondsRemaining: data.secondsRemaining || 0,
+      playlistName: data.playlistName || null
+    };
+    
+    _recordStateChange('FPP_STATUS_UPDATED');
+    _notifySubscribers();
+  }
+  
+  /**
+   * Tick speaker countdown (client-side, called every 1 second)
+   */
+  function tickSpeakerCountdown() {
+    if (_state.speaker.remainingSeconds > 0) {
+      _state.speaker.remainingSeconds -= 1;
+      _notifySubscribers();
+    }
+  }
+  
+  /**
+   * Track user action for proximity estimation
+   */
+  function trackUserAction(actionType) {
+    const now = Date.now();
+    
+    if (!_state.userContext.firstActionTime) {
+      _state.userContext.firstActionTime = now;
+    }
+    
+    _state.userContext.actionCount += 1;
+    _state.userContext.lastActionType = actionType;
+    _state.userContext.lastActionTime = now;
+  }
+  
+  /**
+   * Estimate if user is likely on-site (passive proximity detection)
+   * Uses multiple signals, no permission prompts
+   * 
+   * @returns {Object} { likelihood: 0.0-1.0, confidence: 'low'|'medium'|'high', signals: [] }
+   */
+  function estimateProximity() {
+    let score = 0.5; // Start neutral
+    const signals = [];
+    const ctx = _state.userContext;
+    
+    // Signal 1: Time of page load relative to show
+    const currentHour = new Date().getHours();
+    if (currentHour >= 18 && currentHour <= 22) {
+      score += 0.15;
+      signals.push('showtime_access');
+    }
+    
+    // Signal 2: Device type
+    if (ctx.isMobile) {
+      score += 0.1;
+      signals.push('mobile_device');
+    }
+    
+    // Signal 3: Quick engagement
+    if (ctx.firstActionTime) {
+      const minutesSinceLoad = (ctx.firstActionTime - ctx.pageLoadTime) / 60000;
+      if (minutesSinceLoad < 2) {
+        score += 0.15;
+        signals.push('immediate_engagement');
+      }
+    }
+    
+    // Signal 4: Multiple actions
+    if (ctx.actionCount >= 3) {
+      score += 0.1;
+      signals.push('high_engagement');
+    }
+    
+    // Signal 5: Timezone match
+    if (ctx.timezone && ctx.timezone.includes('Los_Angeles')) {
+      score += 0.1;
+      signals.push('timezone_match');
+    }
+    
+    // Signal 6: Cloudflare geo headers
+    if (ctx.cfCountry === 'US' && ctx.cfRegion === 'CA') {
+      score += 0.15;
+      signals.push('california_ip');
+    }
+    
+    const likelihood = Math.min(score, 1.0);
+    const confidence = likelihood > 0.7 ? 'high' : likelihood > 0.4 ? 'medium' : 'low';
+    
+    return {
+      likelihood,
+      confidence,
+      signals
+    };
+  }
+  
+  /**
+   * Check if speaker can be used (frontend gating - UX guidance only)
+   * Backend is authoritative and can veto
+   * 
+   * @returns {Object} { allowed: boolean, code: string, reasonKey: string }
+   */
+  function canUseSpeaker() {
+    const state = _state;
+    const currentHour = new Date().getHours();
+    
+    // Check 1: Override/locked mode
+    if (state.speaker.override && state.speaker.mode === 'locked_on') {
+      return {
+        allowed: false,
+        code: 'OVERRIDE_LOCKED',
+        reasonKey: 'lockedByEvent'
+      };
+    }
+    
+    // Check 2: Noise curfew
+    if (state.speaker.config.noiseCurfewEnabled && 
+        !state.speaker.config.noiseCurfewOverride &&
+        currentHour >= state.speaker.config.noiseCurfewHour) {
+      return {
+        allowed: false,
+        code: 'NOISE_CURFEW',
+        reasonKey: 'noiseCurfew'
+      };
+    }
+    
+    // Check 3: FPP status
+    if (state.fppStatus.status === 'unreachable') {
+      return {
+        allowed: false,
+        code: 'FPP_UNREACHABLE',
+        reasonKey: 'fppOffline'
+      };
+    }
+    
+    if (state.fppStatus.status !== 'playing') {
+      return {
+        allowed: false,
+        code: 'NOT_PLAYING',
+        reasonKey: 'nothingPlaying'
+      };
+    }
+    
+    // All checks passed
+    return {
+      allowed: true,
+      code: 'OK',
+      reasonKey: null
+    };
+  }
+  
+  /**
+   * Check if extension button should be available
+   */
+  function canExtendSpeaker() {
+    const state = _state;
+    
+    if (!state.speaker.enabled) {
+      return false;
+    }
+    
+    // Extension only available in last 30 seconds
+    if (state.speaker.remainingSeconds > 30) {
+      return false;
+    }
+    
+    if (state.speaker.remainingSeconds <= 0) {
+      return false;
+    }
+    
+    // Check if we've hit max session duration (15 min = 900s)
+    const sessionDuration = (Date.now() - state.speaker.sessionStartedAt) / 1000;
+    if (sessionDuration >= 900) {
+      return false;
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Set theme mode (for seasonal content)
+   */
+  function setThemeMode(mode) {
+    if (['halloween', 'christmas', 'neutral'].includes(mode)) {
+      _state.themeMode = mode;
+      _recordStateChange('THEME_MODE_CHANGED');
+      _notifySubscribers();
+    }
+  }
+  
+  /**
+   * Set user context from server (Cloudflare headers, etc.)
+   */
+  function setUserContext(context) {
+    _state.userContext = {
+      ..._state.userContext,
+      ...context
+    };
+  }
+  
+  /**
+   * Subscribe to state changes
+   */
+  function subscribeToState(callback) {
+    if (typeof callback === 'function') {
+      _subscribers.push(callback);
+    }
+    
+    // Return unsubscribe function
+    return () => {
+      _subscribers = _subscribers.filter(cb => cb !== callback);
+    };
+  }
+  
+  /**
+   * Notify all subscribers of state change
+   */
+  function _notifySubscribers() {
+    const state = getState();
+    _subscribers.forEach(callback => {
+      try {
+        callback(state);
+      } catch (err) {
+        console.error('[StateLayer] Subscriber error:', err);
+      }
+    });
+  }
+  
+  /**
+   * Record state change in history (for debugging)
+   */
+  function _recordStateChange(reason) {
+    _stateHistory.push({
+      timestamp: Date.now(),
+      reason,
+      state: getState()
+    });
+    
+    // Keep history size manageable
+    if (_stateHistory.length > MAX_HISTORY) {
+      _stateHistory.shift();
+    }
+  }
+  
+  /**
+   * Get state history (for debugging)
+   */
+  function getStateHistory() {
+    return [..._stateHistory];
+  }
+  
+  /**
+   * Dump current state (for debugging)
+   */
+  function dumpState() {
+    console.log('[StateLayer] Current State:', getState());
+    console.log('[StateLayer] State History:', getStateHistory());
+  }
+  
+  // Public API
+  return {
+    getState,
+    setSpeakerState,
+    setShowState,
+    setFPPStatus,
+    tickSpeakerCountdown,
+    trackUserAction,
+    estimateProximity,
+    canUseSpeaker,
+    canExtendSpeaker,
+    setThemeMode,
+    setUserContext,
+    subscribeToState,
+    getStateHistory,
+    dumpState
+  };
+  
+})();
 
+// Export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = StateLayer;
+} else {
   window.StateLayer = StateLayer;
-})(window);
+}

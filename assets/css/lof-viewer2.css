@@ -1,0 +1,603 @@
+/**
+ * LOF Viewer V2 - Complete Stylesheet
+ * Includes speaker control, modals, toasts, and responsive design
+ */
+
+/* ================================================
+   SPEAKER CARD STYLES
+   ================================================ */
+
+.lof-speaker-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 20px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.lof-speaker-card--active {
+  border-left: 5px solid #4CAF50;
+  background: linear-gradient(135deg, #ffffff 0%, #f1f8f4 100%);
+}
+
+.lof-speaker-card--locked {
+  border-left: 5px solid #FF9800;
+  background: linear-gradient(135deg, #ffffff 0%, #fff8f1 100%);
+}
+
+.lof-speaker-card--curfew {
+  border-left: 5px solid #9C27B0;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f1ff 100%);
+}
+
+.lof-speaker-card--disabled {
+  opacity: 0.7;
+  background: #f5f5f5;
+}
+
+.lof-card-header {
+  margin-bottom: 16px;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 12px;
+}
+
+.lof-card-header h3 {
+  margin: 0;
+  font-size: 24px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lof-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ================================================
+   STATUS AND MESSAGES
+   ================================================ */
+
+.speaker-status {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8f9fa;
+  font-size: 14px;
+  color: #666;
+}
+
+.speaker-status--active {
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.speaker-status--error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.speaker-message {
+  font-size: 16px;
+  line-height: 1.6;
+  color: #444;
+}
+
+.speaker-message--primary {
+  color: #1976D2;
+  font-weight: 500;
+}
+
+.speaker-message--warning {
+  color: #F57C00;
+}
+
+.speaker-hint {
+  font-size: 13px;
+  color: #777;
+  padding: 10px;
+  background: #fafafa;
+  border-left: 3px solid #2196F3;
+  border-radius: 4px;
+}
+
+.speaker-hint--proximity {
+  border-left-color: #4CAF50;
+  background: #f1f8f4;
+}
+
+.speaker-hint--weather {
+  border-left-color: #FF9800;
+  background: #fff8f1;
+}
+
+/* ================================================
+   COUNTDOWN TIMER
+   ================================================ */
+
+.speaker-countdown {
+  font-size: 32px;
+  font-weight: bold;
+  text-align: center;
+  padding: 16px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.lof-countdown--normal {
+  color: #2e7d32;
+}
+
+.lof-countdown--caution {
+  color: #F57C00;
+  background: linear-gradient(135deg, #fff8f1 0%, #ffe0b2 100%);
+}
+
+.lof-countdown--warning {
+  color: #c62828;
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+#countdown-value {
+  font-variant-numeric: tabular-nums;
+  min-width: 100px;
+  display: inline-block;
+}
+
+/* ================================================
+   BUTTONS
+   ================================================ */
+
+.lof-btn {
+  padding: 14px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  display: block;
+}
+
+.lof-btn--primary {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  color: white;
+}
+
+.lof-btn--primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
+  box-shadow: 0 4px 10px rgba(33, 150, 243, 0.4);
+  transform: translateY(-2px);
+}
+
+.lof-btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+}
+
+.lof-btn--success {
+  background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+  color: white;
+}
+
+.lof-btn--success:hover:not(:disabled) {
+  background: linear-gradient(135deg, #388E3C 0%, #2E7D32 100%);
+  box-shadow: 0 4px 10px rgba(76, 175, 80, 0.4);
+  transform: translateY(-2px);
+}
+
+.lof-btn--warning {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+  color: white;
+}
+
+.lof-btn--warning:hover:not(:disabled) {
+  background: linear-gradient(135deg, #F57C00 0%, #E65100 100%);
+  box-shadow: 0 4px 10px rgba(255, 152, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.lof-btn--disabled,
+.lof-btn:disabled {
+  background: #ccc;
+  color: #888;
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
+}
+
+.lof-btn--locked {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+  color: white;
+  cursor: not-allowed;
+}
+
+/* Button group for extension */
+.lof-btn-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lof-btn-group .lof-btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* ================================================
+   ALTERNATIVE AUDIO OPTIONS
+   ================================================ */
+
+.speaker-alternatives {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-top: 1px solid #eee;
+}
+
+.lof-btn-text {
+  background: none;
+  border: none;
+  color: #2196F3;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lof-btn-text:hover {
+  background: #e3f2fd;
+  color: #1565C0;
+}
+
+.lof-btn-text:active {
+  background: #bbdefb;
+}
+
+#fm-freq {
+  font-weight: 700;
+  color: #1976D2;
+}
+
+/* ================================================
+   MODAL STYLES
+   ================================================ */
+
+.lof-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+
+.lof-modal--show {
+  display: flex;
+}
+
+.lof-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.lof-modal-content {
+  position: relative;
+  background: white;
+  padding: 32px;
+  border-radius: 16px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  z-index: 10000;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lof-modal-content h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 24px;
+  color: #333;
+}
+
+.lof-modal-content p {
+  margin-bottom: 20px;
+  line-height: 1.6;
+  color: #666;
+}
+
+.lof-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 32px;
+  cursor: pointer;
+  color: #999;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.lof-modal-close:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+#stream-container {
+  margin-top: 20px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+#stream-container iframe {
+  width: 100%;
+  height: 400px;
+  border: none;
+}
+
+/* ================================================
+   TOAST NOTIFICATIONS
+   ================================================ */
+
+.lof-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+}
+
+.lof-toast {
+  background: #323232;
+  color: white;
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: translateX(450px);
+  transition: transform 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.lof-toast--show {
+  transform: translateX(0);
+}
+
+.lof-toast--success {
+  background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+}
+
+.lof-toast--error {
+  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+}
+
+.lof-toast--info {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+}
+
+.lof-toast--warning {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+}
+
+.lof-toast-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.lof-toast-message {
+  flex: 1;
+}
+
+/* ================================================
+   RESPONSIVE DESIGN
+   ================================================ */
+
+@media (max-width: 768px) {
+  .lof-speaker-card {
+    padding: 20px 16px;
+    margin: 16px 0;
+  }
+  
+  .lof-card-header h3 {
+    font-size: 20px;
+  }
+  
+  .speaker-countdown {
+    font-size: 24px;
+    padding: 12px;
+  }
+  
+  .lof-btn {
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+  
+  .lof-btn-group {
+    flex-direction: column;
+  }
+  
+  .lof-btn-group .lof-btn {
+    width: 100%;
+  }
+  
+  .speaker-alternatives {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .lof-modal-content {
+    padding: 24px 20px;
+    width: 95%;
+  }
+  
+  .lof-toast-container {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .lof-toast {
+    transform: translateY(-100px);
+  }
+  
+  .lof-toast--show {
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .lof-speaker-card {
+    border-radius: 8px;
+    padding: 16px 12px;
+  }
+  
+  .speaker-countdown {
+    font-size: 20px;
+  }
+  
+  .lof-btn {
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+}
+
+/* ================================================
+   ACCESSIBILITY
+   ================================================ */
+
+.lof-btn:focus,
+.lof-btn-text:focus,
+.lof-modal-close:focus {
+  outline: 3px solid #2196F3;
+  outline-offset: 2px;
+}
+
+.lof-btn:disabled:focus {
+  outline-color: #ccc;
+}
+
+/* Screen reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ================================================
+   PRINT STYLES
+   ================================================ */
+
+@media print {
+  .lof-speaker-card,
+  .lof-modal,
+  .lof-toast-container {
+    display: none !important;
+  }
+}
+
+/* ================================================
+   THEME VARIATIONS (Optional - for future use)
+   ================================================ */
+
+/* Halloween theme hooks */
+.lof-theme--halloween .lof-speaker-card {
+  border-color: #FF6B00;
+}
+
+.lof-theme--halloween .lof-btn--primary {
+  background: linear-gradient(135deg, #FF6B00 0%, #CC5500 100%);
+}
+
+/* Christmas theme hooks */
+.lof-theme--christmas .lof-speaker-card {
+  border-color: #C41E3A;
+}
+
+.lof-theme--christmas .lof-btn--primary {
+  background: linear-gradient(135deg, #C41E3A 0%, #8B0000 100%);
+}
+
+/* Chaos mode hooks */
+.lof-chaos-mode .lof-speaker-card {
+  animation: chaosShake 0.5s infinite;
+  border-color: #9C27B0;
+}
+
+@keyframes chaosShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px) rotate(-1deg); }
+  75% { transform: translateX(2px) rotate(1deg); }
+}
