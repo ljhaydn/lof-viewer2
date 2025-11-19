@@ -1,19 +1,20 @@
 /**
- * LOF Viewer V2 - Init Layer (FULLY CORRECTED)
+ * LOF Viewer V2 - Init Layer (COMPLETE WITH RF VIEWER)
  * 
  * Responsibility: Bootstrap and initialize the application
- * - Initial data fetch
+ * - Initialize RF viewer (song cards, now playing, etc.)
+ * - Initialize speaker control
  * - Set up polling intervals
  * - Subscribe to state changes
  * - Wire up interaction handlers
- * - Hide loading state
- * - No business logic beyond initialization
  */
 
 const InitLayer = (() => {
   
   let _initialized = false;
-  let _statusPollInterval = null;
+  let _rfPollInterval = null;
+  let _fppPollInterval = null;
+  let _speakerPollInterval = null;
   let _countdownInterval = null;
   
   /**
@@ -24,17 +25,11 @@ const InitLayer = (() => {
     if (loadingEl) {
       loadingEl.style.display = 'none';
     }
-    
-    const speakerCard = document.getElementById('lof-speaker-card');
-    if (speakerCard) {
-      speakerCard.style.display = 'block';
-    }
-    
-    console.log('[InitLayer] Loading screen hidden, viewer visible');
+    console.log('[InitLayer] Loading screen hidden');
   }
   
   /**
-   * Show error state (if init fails completely)
+   * Show error state
    */
   function showErrorState(message) {
     const loadingEl = document.getElementById('lof-loading');
@@ -52,21 +47,130 @@ const InitLayer = (() => {
   }
   
   /**
-   * Render speaker UI based on current state
+   * Render speaker UI
    */
   function renderSpeakerUI(state) {
     try {
-      // Get flags from ThemeLayer (correct method name)
       const flags = ThemeLayer.mapSpeakerFlags(state);
-      
-      // Get content from ContentLayer (correct method name)
       const content = ContentLayer.getSpeakerContent(state, flags);
-      
-      // Render via ViewLayer
       ViewLayer.renderSpeakerCard(state, flags, content);
     } catch (err) {
       console.error('[InitLayer] Error rendering speaker UI:', err);
     }
+  }
+  
+  /**
+   * Render main viewer UI (song cards, now playing, etc.)
+   */
+  function renderViewerUI(state) {
+    try {
+      // Get overall state flags from ThemeLayer
+      const viewerFlags = ThemeLayer.mapStateToFlags ? ThemeLayer.mapStateToFlags(state) : {};
+      
+      // Render now playing section
+      if (ViewLayer.renderNowPlaying) {
+        ViewLayer.renderNowPlaying(state, viewerFlags);
+      }
+      
+      // Render up next section
+      if (ViewLayer.renderUpNext) {
+        ViewLayer.renderUpNext(state, viewerFlags);
+      }
+      
+      // Render song cards/tiles
+      if (ViewLayer.renderSongCards) {
+        ViewLayer.renderSongCards(state, viewerFlags);
+      }
+      
+      // Render queue display
+      if (ViewLayer.renderQueue) {
+        ViewLayer.renderQueue(state, viewerFlags);
+      }
+      
+    } catch (err) {
+      console.error('[InitLayer] Error rendering viewer UI:', err);
+    }
+  }
+  
+  /**
+   * Initialize Remote Falcon viewer
+   */
+  async function initRFViewer() {
+    console.log('[InitLayer] Initializing Remote Falcon viewer...');
+    
+    // Check if RF features are enabled
+    const config = window.LOF_CONFIG || {};
+    const rfEnabled = config.features?.requestsEnabled || config.features?.votingEnabled;
+    
+    if (!rfEnabled) {
+      console.log('[InitLayer] RF features disabled, skipping RF initialization');
+      return;
+    }
+    
+    try {
+      // Fetch initial show details
+      const showData = await LOFClient.getShowDetails();
+      
+      if (showData.success) {
+        StateLayer.setShowState(showData);
+        console.log('[InitLayer] RF show details loaded');
+      } else {
+        console.warn('[InitLayer] Failed to load RF show details:', showData.error);
+      }
+    } catch (err) {
+      console.error('[InitLayer] Error loading RF show details:', err);
+    }
+    
+    // Set up RF polling (every 5 seconds)
+    _rfPollInterval = setInterval(async () => {
+      try {
+        const showData = await LOFClient.getShowDetails();
+        
+        if (showData.success) {
+          StateLayer.setShowState(showData);
+        }
+      } catch (err) {
+        console.error('[InitLayer] RF poll error:', err);
+      }
+    }, 5000);
+    
+    console.log('[InitLayer] RF viewer initialized');
+  }
+  
+  /**
+   * Initialize FPP integration
+   */
+  async function initFPP() {
+    console.log('[InitLayer] Initializing FPP integration...');
+    
+    try {
+      // Fetch initial FPP status
+      const fppStatus = await LOFClient.getFPPStatus();
+      
+      if (fppStatus.success) {
+        StateLayer.setFPPStatus(fppStatus);
+        console.log('[InitLayer] FPP status loaded');
+      } else {
+        console.warn('[InitLayer] Failed to load FPP status:', fppStatus.error);
+      }
+    } catch (err) {
+      console.error('[InitLayer] Error loading FPP status:', err);
+    }
+    
+    // Set up FPP polling (every 5 seconds)
+    _fppPollInterval = setInterval(async () => {
+      try {
+        const fppStatus = await LOFClient.getFPPStatus();
+        
+        if (fppStatus.success) {
+          StateLayer.setFPPStatus(fppStatus);
+        }
+      } catch (err) {
+        console.error('[InitLayer] FPP poll error:', err);
+      }
+    }, 5000);
+    
+    console.log('[InitLayer] FPP integration initialized');
   }
   
   /**
@@ -75,56 +179,58 @@ const InitLayer = (() => {
   async function initSpeaker() {
     console.log('[InitLayer] Initializing speaker system...');
     
-    // 1. Fetch initial speaker status
+    // Check if speaker features are enabled
+    const config = window.LOF_CONFIG || {};
+    const speakerEnabled = config.features?.speakerControlEnabled !== false;
+    
+    if (!speakerEnabled) {
+      console.log('[InitLayer] Speaker control disabled, skipping speaker initialization');
+      // Hide speaker card
+      const speakerCard = document.getElementById('lof-speaker-card');
+      if (speakerCard) {
+        speakerCard.style.display = 'none';
+      }
+      return;
+    }
+    
     try {
+      // Fetch initial speaker status
       const status = await LOFClient.getSpeakerStatus();
       
       if (status.success) {
         StateLayer.setSpeakerState(status);
-        console.log('[InitLayer] Initial speaker status loaded');
+        console.log('[InitLayer] Speaker status loaded');
       } else {
-        console.warn('[InitLayer] Failed to load initial speaker status:', status.error);
-        // Continue anyway - speaker might be disabled or unavailable
+        console.warn('[InitLayer] Failed to load speaker status:', status.error);
       }
     } catch (err) {
-      console.error('[InitLayer] Error loading initial speaker status:', err);
-      // Continue anyway
+      console.error('[InitLayer] Error loading speaker status:', err);
     }
     
-    // 2. Subscribe to state changes
-    StateLayer.subscribeToState((state) => {
-      // Render speaker UI on every state change
-      renderSpeakerUI(state);
-      
-      // Detect physical button presses
-      if (InteractionLayer.detectPhysicalButtonPress) {
-        InteractionLayer.detectPhysicalButtonPress(state);
-      }
-    });
-    
-    // 3. Initialize interaction handlers
-    InteractionLayer.init();
-    
-    // 4. Initial render
+    // Initial render
     const initialState = StateLayer.getState();
     renderSpeakerUI(initialState);
     
-    // 5. Set up status polling (every 5 seconds)
-    _statusPollInterval = setInterval(async () => {
+    // Show speaker card
+    const speakerCard = document.getElementById('lof-speaker-card');
+    if (speakerCard) {
+      speakerCard.style.display = 'block';
+    }
+    
+    // Set up speaker polling (every 5 seconds)
+    _speakerPollInterval = setInterval(async () => {
       try {
         const status = await LOFClient.getSpeakerStatus();
         
         if (status.success) {
           StateLayer.setSpeakerState(status);
-        } else {
-          console.warn('[InitLayer] Status poll failed:', status.error);
         }
       } catch (err) {
-        console.error('[InitLayer] Status poll error:', err);
+        console.error('[InitLayer] Speaker poll error:', err);
       }
-    }, 5000); // 5 seconds
+    }, 5000);
     
-    // 6. Set up countdown ticker (every 1 second)
+    // Set up countdown ticker (every 1 second)
     _countdownInterval = setInterval(() => {
       StateLayer.tickSpeakerCountdown();
     }, 1000);
@@ -133,17 +239,15 @@ const InitLayer = (() => {
   }
   
   /**
-   * Initialize theme based on config
+   * Initialize theme
    */
   function initTheme() {
     let themeMode = 'neutral';
     
-    // Check for theme in LOF_CONFIG
     if (window.LOF_CONFIG && window.LOF_CONFIG.theme) {
       themeMode = window.LOF_CONFIG.theme;
     }
     
-    // Apply theme to viewer container
     const viewerEl = document.getElementById('lof-viewer-v2');
     if (viewerEl) {
       viewerEl.setAttribute('data-theme', themeMode);
@@ -154,7 +258,6 @@ const InitLayer = (() => {
   
   /**
    * Main initialization function
-   * Called when DOM is ready
    */
   async function init() {
     if (_initialized) {
@@ -162,35 +265,51 @@ const InitLayer = (() => {
       return;
     }
     
-    console.log('[InitLayer] Starting Lights on Falcon Viewer V2...');
+    console.log('[InitLayer] 🚀 Starting Lights on Falcon Viewer V2...');
     console.log('[InitLayer] LOF_CONFIG:', window.LOF_CONFIG);
     
     try {
       // Verify all required layers are loaded
-      const requiredLayers = [
-        'LOFClient',
-        'StateLayer', 
-        'ThemeLayer',
-        'ContentLayer',
-        'ViewLayer',
-        'InteractionLayer'
-      ];
-      
+      const requiredLayers = ['LOFClient', 'StateLayer', 'ThemeLayer', 'ContentLayer', 'ViewLayer', 'InteractionLayer'];
       const missingLayers = requiredLayers.filter(layer => !window[layer]);
       
       if (missingLayers.length > 0) {
         throw new Error(`Missing required layers: ${missingLayers.join(', ')}`);
       }
       
-      console.log('[InitLayer] All layers loaded successfully');
+      console.log('[InitLayer] ✅ All layers loaded');
       
-      // Initialize theme first (no async)
+      // Initialize theme
       initTheme();
       
-      // Initialize speaker system
-      await initSpeaker();
+      // Subscribe to state changes (do this BEFORE loading data)
+      StateLayer.subscribeToState((state) => {
+        // Render both speaker UI and viewer UI on every state change
+        renderSpeakerUI(state);
+        renderViewerUI(state);
+        
+        // Detect physical button presses
+        if (InteractionLayer.detectPhysicalButtonPress) {
+          InteractionLayer.detectPhysicalButtonPress(state);
+        }
+      });
       
-      // Hide loading screen, show viewer
+      // Initialize interaction handlers
+      InteractionLayer.init();
+      
+      // Initialize all subsystems in parallel
+      await Promise.all([
+        initRFViewer(),
+        initFPP(),
+        initSpeaker()
+      ]);
+      
+      // Initial render of everything
+      const currentState = StateLayer.getState();
+      renderSpeakerUI(currentState);
+      renderViewerUI(currentState);
+      
+      // Hide loading screen
       hideLoadingScreen();
       
       _initialized = true;
@@ -203,25 +322,23 @@ const InitLayer = (() => {
   }
   
   /**
-   * Cleanup function (for page unload or SPA transitions)
+   * Cleanup function
    */
   function cleanup() {
-    if (_statusPollInterval) {
-      clearInterval(_statusPollInterval);
-      _statusPollInterval = null;
-    }
+    if (_rfPollInterval) clearInterval(_rfPollInterval);
+    if (_fppPollInterval) clearInterval(_fppPollInterval);
+    if (_speakerPollInterval) clearInterval(_speakerPollInterval);
+    if (_countdownInterval) clearInterval(_countdownInterval);
     
-    if (_countdownInterval) {
-      clearInterval(_countdownInterval);
-      _countdownInterval = null;
-    }
-    
+    _rfPollInterval = null;
+    _fppPollInterval = null;
+    _speakerPollInterval = null;
+    _countdownInterval = null;
     _initialized = false;
     
     console.log('[InitLayer] Cleaned up');
   }
   
-  // Public API
   return {
     init,
     cleanup
@@ -235,7 +352,6 @@ if (document.readyState === 'loading') {
     InitLayer.init();
   });
 } else {
-  // DOM already loaded
   InitLayer.init();
 }
 
