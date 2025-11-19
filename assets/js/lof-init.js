@@ -1,11 +1,12 @@
 /**
- * LOF Viewer V2 - Init Layer
+ * LOF Viewer V2 - Init Layer (FIXED)
  * 
  * Responsibility: Bootstrap and initialize the application
  * - Initial data fetch
  * - Set up polling intervals
  * - Subscribe to state changes
  * - Wire up interaction handlers
+ * - Hide loading state
  * - No business logic beyond initialization
  */
 
@@ -13,16 +14,47 @@ const InitLayer = (() => {
   
   let _initialized = false;
   let _statusPollInterval = null;
+  let _countdownInterval = null;
+  
+  /**
+   * Hide loading screen, show viewer
+   */
+  function hideLoadingScreen() {
+    const loadingEl = document.getElementById('lof-loading');
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+    }
+    
+    const speakerCard = document.getElementById('lof-speaker-card');
+    if (speakerCard) {
+      speakerCard.style.display = 'block';
+    }
+    
+    console.log('[InitLayer] Loading screen hidden, viewer visible');
+  }
+  
+  /**
+   * Show error state (if init fails completely)
+   */
+  function showErrorState(message) {
+    const loadingEl = document.getElementById('lof-loading');
+    if (loadingEl) {
+      loadingEl.innerHTML = `
+        <div class="loading-error">
+          <p style="color: #F5222D; font-weight: 500;">⚠ Initialization Failed</p>
+          <p style="font-size: 14px; color: #595959;">${message}</p>
+          <button onclick="location.reload()" style="margin-top: 16px; padding: 8px 16px; border: 1px solid #d9d9d9; border-radius: 4px; background: white; cursor: pointer;">
+            Retry
+          </button>
+        </div>
+      `;
+    }
+  }
   
   /**
    * Initialize speaker system
    */
   async function initSpeaker() {
-    if (_initialized) {
-      console.warn('[InitLayer] Speaker already initialized');
-      return;
-    }
-    
     console.log('[InitLayer] Initializing speaker system...');
     
     // 1. Fetch initial speaker status
@@ -34,15 +66,19 @@ const InitLayer = (() => {
         console.log('[InitLayer] Initial speaker status loaded');
       } else {
         console.warn('[InitLayer] Failed to load initial speaker status:', status.error);
+        // Continue anyway - speaker might be disabled or unavailable
       }
     } catch (err) {
       console.error('[InitLayer] Error loading initial speaker status:', err);
+      // Continue anyway
     }
     
     // 2. Subscribe to state changes
     StateLayer.subscribeToState((state) => {
-      // Update UI on every state change
-      ViewLayer.updateUI(state);
+      // Render speaker card based on current state
+      const flags = ThemeLayer.getSpeakerFlags(state);
+      const content = ContentLayer.getSpeakerContent(state, flags);
+      ViewLayer.renderSpeakerCard(state, flags, content);
       
       // Detect physical button presses
       InteractionLayer.detectPhysicalButtonPress(state);
@@ -51,7 +87,13 @@ const InitLayer = (() => {
     // 3. Initialize interaction handlers
     InteractionLayer.init();
     
-    // 4. Set up status polling (every 15 seconds)
+    // 4. Initial render
+    const initialState = StateLayer.getState();
+    const initialFlags = ThemeLayer.getSpeakerFlags(initialState);
+    const initialContent = ContentLayer.getSpeakerContent(initialState, initialFlags);
+    ViewLayer.renderSpeakerCard(initialState, initialFlags, initialContent);
+    
+    // 5. Set up status polling (every 5 seconds)
     _statusPollInterval = setInterval(async () => {
       try {
         const status = await LOFClient.getSpeakerStatus();
@@ -64,55 +106,34 @@ const InitLayer = (() => {
       } catch (err) {
         console.error('[InitLayer] Status poll error:', err);
       }
-    }, 15000); // 15 seconds
+    }, 5000); // 5 seconds
     
-    // 5. Initial UI render
-    const initialState = StateLayer.getState();
-    ViewLayer.updateUI(initialState);
+    // 6. Set up countdown ticker (every 1 second)
+    _countdownInterval = setInterval(() => {
+      StateLayer.tickSpeakerCountdown();
+    }, 1000);
     
-    _initialized = true;
-    console.log('[InitLayer] Speaker system initialized successfully');
+    console.log('[InitLayer] Speaker system initialized');
   }
   
   /**
-   * Initialize theme based on date/settings
+   * Initialize theme based on config
    */
   function initTheme() {
-    // Detect theme based on current date
-    const now = new Date();
-    const month = now.getMonth(); // 0-11
-    const day = now.getDate();
-    
     let themeMode = 'neutral';
     
-    // Halloween: October 1 - November 1
-    if (month === 9 || (month === 10 && day === 1)) {
-      themeMode = 'halloween';
+    // Check for theme in LOF_CONFIG
+    if (window.LOF_CONFIG && window.LOF_CONFIG.theme) {
+      themeMode = window.LOF_CONFIG.theme;
     }
     
-    // Christmas: December 1 - January 1
-    if (month === 11 || (month === 0 && day === 1)) {
-      themeMode = 'christmas';
+    // Apply theme to viewer container
+    const viewerEl = document.getElementById('lof-viewer-v2');
+    if (viewerEl) {
+      viewerEl.setAttribute('data-theme', themeMode);
     }
     
-    // Check for manual override in config
-    if (window.LOF_CONFIG && window.LOF_CONFIG.themeMode) {
-      themeMode = window.LOF_CONFIG.themeMode;
-    }
-    
-    StateLayer.setThemeMode(themeMode);
     console.log('[InitLayer] Theme mode:', themeMode);
-  }
-  
-  /**
-   * Initialize user context from server data
-   */
-  function initUserContext() {
-    // If server provided Cloudflare headers or other context
-    if (window.LOF_CONFIG && window.LOF_CONFIG.userContext) {
-      StateLayer.setUserContext(window.LOF_CONFIG.userContext);
-      console.log('[InitLayer] User context set from server');
-    }
   }
   
   /**
@@ -120,22 +141,30 @@ const InitLayer = (() => {
    * Called when DOM is ready
    */
   async function init() {
+    if (_initialized) {
+      console.warn('[InitLayer] Already initialized');
+      return;
+    }
+    
     console.log('[InitLayer] Starting Lights on Falcon Viewer V2...');
+    console.log('[InitLayer] LOF_CONFIG:', window.LOF_CONFIG);
     
     try {
       // Initialize theme first (no async)
       initTheme();
       
-      // Initialize user context
-      initUserContext();
-      
       // Initialize speaker system
       await initSpeaker();
       
-      console.log('[InitLayer] All systems initialized');
+      // Hide loading screen, show viewer
+      hideLoadingScreen();
+      
+      _initialized = true;
+      console.log('[InitLayer] ✅ All systems initialized');
       
     } catch (err) {
-      console.error('[InitLayer] Initialization failed:', err);
+      console.error('[InitLayer] ❌ Initialization failed:', err);
+      showErrorState(err.message || 'Unknown error');
     }
   }
   
@@ -146,6 +175,11 @@ const InitLayer = (() => {
     if (_statusPollInterval) {
       clearInterval(_statusPollInterval);
       _statusPollInterval = null;
+    }
+    
+    if (_countdownInterval) {
+      clearInterval(_countdownInterval);
+      _countdownInterval = null;
     }
     
     _initialized = false;
