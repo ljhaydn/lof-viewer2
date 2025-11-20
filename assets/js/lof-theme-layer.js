@@ -1,4 +1,3 @@
-// assets/js/lof-theme-layer.js
 (function (window) {
   'use strict';
 
@@ -85,6 +84,176 @@
       if (!isAvailable) base += ' lof-tile--unavailable';
       if (isCooldown) base += ' lof-tile--cooldown';
       return base;
+    },
+
+    mapSpeakerFlags(state) {
+      const gating = StateLayer.canUseSpeaker();
+      const canExtend = StateLayer.canExtendSpeaker();
+      const needsConfirmation = StateLayer.needsProximityConfirmation();
+
+      let displayMode = 'off';
+
+      if (gating.code === 'OVERRIDE_LOCKED') {
+        displayMode = 'locked';
+      } else if (gating.code === 'NOISE_CURFEW') {
+        displayMode = 'curfew';
+      } else if (gating.code === 'FPP_UNREACHABLE') {
+        displayMode = 'unavailable';
+      } else if (gating.code === 'NOT_PLAYING') {
+        displayMode = 'waiting';
+      } else if (gating.code === 'LIFETIME_CAP_REACHED') {
+        displayMode = 'capped';
+      } else if (needsConfirmation) {
+        displayMode = 'proximity_confirm';
+      } else if (state.speaker.enabled) {
+        if (state.speaker.maxSessionReached) {
+          displayMode = 'session_ending';
+        } else if (canExtend) {
+          displayMode = 'extension';
+        } else {
+          displayMode = 'active';
+        }
+      } else if (gating.allowed) {
+        displayMode = 'off';
+      }
+
+      const showProximityConfirmButton = displayMode === 'proximity_confirm';
+      const showPrimaryButton = !showProximityConfirmButton;
+
+      return {
+        displayMode,
+        showSpeakerButton: true,
+        showProximityConfirmButton,
+        showPrimaryButton,
+        canClickPrimaryButton: displayMode === 'off' || displayMode === 'extension',
+        canClickExtensionButton: displayMode === 'extension',
+        primaryButtonEnabled: displayMode === 'off' || displayMode === 'extension',
+        isSpeakerOn: state.speaker.enabled,
+        isSpeakerLocked: displayMode === 'locked',
+        isSpeakerUnavailable: displayMode === 'unavailable',
+        isWaitingForShow: displayMode === 'waiting',
+        isNoiseCurfew: displayMode === 'curfew',
+        isExtensionWindow: displayMode === 'extension',
+        isSessionEnding: displayMode === 'session_ending',
+        isLifetimeCapped: displayMode === 'capped',
+        needsProximityConfirmation: needsConfirmation,
+        speakerCardClass: this._getCardClass(displayMode),
+        primaryButtonClass: this._getButtonClass(displayMode, 'primary'),
+        proximityConfirmButtonClass: this._getButtonClass(displayMode, 'proximity_confirm'),
+        extensionButtonClass: this._getButtonClass(displayMode, 'extension'),
+        statusIconClass: this._getStatusIconClass(displayMode),
+        showCountdown: state.speaker.enabled && state.speaker.remainingSeconds > 0,
+        countdownValue: this._formatCountdown(state.speaker.remainingSeconds),
+        countdownClass: this._getCountdownClass(state.speaker.remainingSeconds),
+        showAlternatives: true,
+        emphasizeAlternatives: displayMode === 'curfew' || displayMode === 'unavailable' || displayMode === 'waiting' || displayMode === 'locked' || displayMode === 'capped',
+        showProximityHint: displayMode === 'off' || displayMode === 'proximity_confirm',
+        proximityTier: state.speaker.proximityTier,
+        showWeatherNotice: false,
+        showSessionStats: false,
+      };
+    },
+
+    _getCardClass(mode) {
+      const baseClass = 'lof-speaker-card';
+      const modeClasses = {
+        'off': 'lof-speaker-card--off',
+        'active': 'lof-speaker-card--active',
+        'extension': 'lof-speaker-card--extension',
+        'session_ending': 'lof-speaker-card--session-ending',
+        'locked': 'lof-speaker-card--locked',
+        'curfew': 'lof-speaker-card--curfew',
+        'unavailable': 'lof-speaker-card--unavailable',
+        'waiting': 'lof-speaker-card--waiting',
+        'capped': 'lof-speaker-card--capped',
+        'proximity_confirm': 'lof-speaker-card--proximity-confirm',
+      };
+      return `${baseClass} ${modeClasses[mode] || ''}`;
+    },
+
+    _getButtonClass(mode, buttonType) {
+      const baseClass = 'lof-btn';
+
+      if (buttonType === 'proximity_confirm') {
+        if (mode === 'proximity_confirm') {
+          return `${baseClass} lof-btn--primary lof-btn--proximity-confirm`;
+        }
+        return `${baseClass} lof-btn--hidden`;
+      }
+
+      if (buttonType === 'primary') {
+        if (mode === 'off') {
+          return `${baseClass} lof-btn--primary lof-btn--speaker-enable`;
+        } else if (mode === 'active') {
+          return `${baseClass} lof-btn--disabled lof-btn--speaker-active`;
+        } else if (mode === 'extension') {
+          return `${baseClass} lof-btn--primary lof-btn--speaker-extend lof-btn--pulse`;
+        } else if (mode === 'session_ending') {
+          return `${baseClass} lof-btn--disabled lof-btn--speaker-ending`;
+        } else if (mode === 'locked' || mode === 'curfew' || mode === 'unavailable' || mode === 'waiting' || mode === 'capped') {
+          return `${baseClass} lof-btn--disabled lof-btn--speaker-blocked`;
+        } else if (mode === 'proximity_confirm') {
+          return `${baseClass} lof-btn--hidden`;
+        } else {
+          return `${baseClass} lof-btn--disabled`;
+        }
+      }
+
+      if (buttonType === 'extension') {
+        if (mode === 'extension') {
+          return `${baseClass} lof-btn--primary lof-btn--pulse`;
+        } else {
+          return `${baseClass} lof-btn--hidden`;
+        }
+      }
+
+      return baseClass;
+    },
+
+    _getStatusIconClass(mode) {
+      const iconMap = {
+        'off': 'icon-speaker-off',
+        'active': 'icon-speaker-on',
+        'extension': 'icon-speaker-on icon-pulse',
+        'session_ending': 'icon-speaker-on icon-warning',
+        'locked': 'icon-lock',
+        'curfew': 'icon-moon',
+        'unavailable': 'icon-alert',
+        'waiting': 'icon-clock',
+        'capped': 'icon-timer-off',
+        'proximity_confirm': 'icon-location',
+      };
+      return iconMap[mode] || 'icon-speaker-off';
+    },
+
+    _formatCountdown(seconds) {
+      if (seconds <= 0) {
+        return '0:00';
+      }
+
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    _getCountdownClass(seconds) {
+      if (seconds <= 30) {
+        return 'lof-countdown--warning';
+      } else if (seconds <= 60) {
+        return 'lof-countdown--caution';
+      } else {
+        return 'lof-countdown--normal';
+      }
+    },
+
+    mapStateToFlags(state) {
+      const speakerFlags = this.mapSpeakerFlags(state);
+
+      return {
+        speaker: speakerFlags,
+        themeMode: state.themeMode || this._currentTheme,
+      };
     },
 
     updateCSSVariables() {

@@ -1,4 +1,3 @@
-// assets/js/lof-init.js
 (function (window) {
   'use strict';
 

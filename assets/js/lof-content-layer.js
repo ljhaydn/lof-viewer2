@@ -1,4 +1,3 @@
-// assets/js/lof-content-layer.js
 (function (window) {
   'use strict';
 
@@ -114,6 +113,11 @@
           christmas: "The reindeer aren't listening!",
           halloween: "The speakers won't obey...",
         },
+        SONG_COOLDOWN: {
+          default: 'This song was recently requested. Wait {remainingSeconds}s.',
+          christmas: 'That song just played! Wait {remainingSeconds}s.',
+          halloween: 'That spirit is resting. Wait {remainingSeconds}s.',
+        },
       },
 
       labels: {
@@ -160,25 +164,88 @@
       },
 
       speaker: {
-        enabled: {
-          default: 'Speaker On',
-          christmas: 'Hear the Magic! 🔊',
-          halloween: 'Hear the Spirits! 🔊',
+        cardTitle: {
+          default: '🔊 Need Sound?',
+          christmas: '🎅 Need Festive Sounds?',
+          halloween: '👻 Need Spooky Sounds?',
+          locked: '🔒 Event Mode',
+          curfew: '🌙 Late Night Audio',
+          unavailable: '⚠️ Speaker Unavailable',
+          waiting: '⏸️ Show Paused',
+          capped: '⏱️ Session Complete',
+          proximity_confirm: '📍 Confirm Location',
         },
-        disabled: {
-          default: 'Speaker Off',
-          christmas: 'Silent Night 🔇',
-          halloween: 'Silence 🔇',
+        buttonLabel: {
+          off: '🔊 Turn On Speakers',
+          active: '🔊 Speakers Active',
+          extension: '⏱️ Still Here? +5 Minutes',
+          session_ending: '🎵 Song Finishing...',
+          locked: '🔒 Speakers Locked On',
+          curfew: '🔇 Speakers Off (Curfew)',
+          unavailable: '⚠️ Unavailable',
+          waiting: '⏸️ Show Not Active',
+          capped: '⏱️ Max Duration Reached',
+          proximity_confirm: '✓ Yes, I\'m at the show',
         },
-        disabledByHeuristic: {
-          default: 'Speaker temporarily disabled',
-          christmas: 'Shh... neighbors are sleeping 🌙',
-          halloween: 'The spirits are resting 🌙',
+        statusMessage: {
+          off: '🎵 Show is live right now!',
+          active: '🎵 Show is playing',
+          extension: '⏱️ Countdown running',
+          session_ending: '🎵 Speakers will turn off after this song',
+          locked: 'Speakers are on continuously for tonight\'s event!',
+          curfew: 'Outdoor speakers end at curfew to be good neighbors!',
+          unavailable: 'Speaker control is temporarily unavailable.',
+          waiting: 'Speakers are only available when the show is actively playing.',
+          capped: 'Maximum session duration reached. Ready to start fresh?',
+          proximity_confirm: 'Are you watching at the show in Long Beach?',
+          proximity_tier2: 'You seem a bit far from Long Beach. Are you at the show?',
+          proximity_tier3: 'You seem quite far from Long Beach. Are you at the show?',
+          proximity_tier4: 'Outdoor speakers only available to guests at the show in Long Beach, CA.',
+          proximity_tier5: 'Outdoor speakers only available to on-site guests in Long Beach, California, USA.',
         },
         helperText: {
-          default: 'Tap to play the speakers out front when the show is running.',
-          christmas: 'Tap to hear the music outside! 🎶',
-          halloween: 'Tap to unleash the sounds... 🎵',
+          off: 'Turn on outdoor speakers if you\'re near the show!',
+          active: 'Enjoying the show? Extension button will appear in the last 30 seconds.',
+          extension: 'Tap the button above to extend your session by 5 more minutes.',
+          session_ending: 'This session will end after the current song finishes. Press the button to start a new session!',
+          locked: 'Viewer control is disabled during this event.',
+          curfew: 'Listen via FM or the audio stream instead.',
+          unavailable: 'Try again in a moment, or use FM/stream options below.',
+          waiting: 'The show will resume shortly. Check back in a few minutes!',
+          capped: 'You\'ve reached the 30-minute maximum. Press the button to start a fresh 5-minute session!',
+          proximity_confirm: 'Confirm you\'re watching on-site to enable outdoor speakers.',
+          proximity_tier1: 'You\'re nearby! Turn on the outdoor speakers.',
+          proximity_tier2: 'Not at the show? Listen via FM or audio stream below.',
+          proximity_tier3: 'Visiting from afar? Enjoy the show via FM or audio stream!',
+          proximity_tier4: 'Desktop users: Speaker control works from mobile devices or on-site networks.',
+        },
+        toasts: {
+          enableSuccess: {
+            default: '🔊 Speakers on. Enjoy the music!',
+            christmas: '🎄 Speakers on! Let the festive music fill the air.',
+            halloween: '🎃 Speakers summoned! The show is louder now.',
+          },
+          extendSuccess: {
+            default: '⏱️ Speakers extended! Enjoy 5 more minutes.',
+            christmas: '🎅 More holiday magic! Extended for 5 minutes.',
+            halloween: '👻 More spooky sounds! Extended for 5 minutes.',
+          },
+          proximityConfirmed: {
+            default: '✓ Location confirmed. You can now control speakers!',
+            christmas: '🎄 Welcome to the show! Speaker control enabled.',
+            halloween: '👻 Welcome, guest! Speaker control enabled.',
+          },
+          alreadyOn: 'Speakers are already rockin\'!',
+          physicalButtonDetected: '🔊 Speakers turned on by show attendee',
+          sessionEnding: 'Speakers will turn off soon. Hit the button to extend!',
+          sessionEndingSoon: 'Last 30 seconds! Extend now to keep listening.',
+          newSessionReady: 'Session complete! Press the button to start fresh.',
+        },
+        alternatives: {
+          fmLabel: '📻 FM {frequency}',
+          streamLabel: '🎵 Audio Stream',
+          fmHint: 'Listen in your car',
+          streamHint: 'Perfectly synced audio',
         },
       },
     },
@@ -216,17 +283,6 @@
       return tpl.replace('{title}', title).replace('{artist}', artist || '');
     },
 
-    getSpeakerLabel(enabled) {
-      return this.getMessage('speaker', enabled ? 'enabled' : 'disabled');
-    },
-
-    getSpeakerAriaLabel(state, reason) {
-      if (state === 'disabled') {
-        return this.getMessage('speaker', 'disabledByHeuristic');
-      }
-      return this.getSpeakerLabel(state === 'on');
-    },
-
     getRequesterLabel(name) {
       if (!name || name === 'Anonymous' || name === 'Guest') {
         return this._currentTheme === 'christmas' ? '🎅' : '👻';
@@ -234,90 +290,148 @@
       return name;
     },
 
-    // ========================================
-    // NEW METHODS REQUIRED BY VIEW LAYER
-    // ========================================
-
-    /**
-     * Get status panel copy
-     * Called by ViewLayer.renderStatusPanel()
-     * Returns { text, indicatorClass, warning }
-     */
     getStatusCopy(derived) {
       const state = derived.state || 'LOADING';
-      const isInDegradedMode = derived.isInDegradedMode || false;
-
       const text = this.getMessage('status', state);
-
-      // Map state to indicator class
       const indicatorClass = `lof-state--${state.toLowerCase()}`;
-
-      // Show warning for DEGRADED or OFFLINE
       let warning = '';
       if (state === 'DEGRADED' || state === 'OFFLINE') {
         warning = this.getMessage('statusWarnings', state);
       }
-
-      return {
-        text,
-        indicatorClass,
-        warning,
-      };
+      return { text, indicatorClass, warning };
     },
 
-    /**
-     * Get "no next track" label
-     * Called by ViewLayer.renderNowNext()
-     * Returns string
-     */
     getNoNextTrackLabel() {
       return this.getMessage('labels', 'noNextTrack');
     },
 
-    /**
-     * Get empty grid message
-     * Called by ViewLayer.renderSongGrid()
-     * Returns string
-     */
     getEmptyGridMessage() {
       return this.getMessage('labels', 'emptyGrid');
     },
 
-    /**
-     * Get speaker button copy
-     * Called by ViewLayer.renderSpeakerButton()
-     * Returns { enabled, buttonLabel, title, helper }
-     */
-    getSpeakerCopy(speakerState) {
-      const enabled = speakerState.enabled || false;
-      const disabledByHeuristic = speakerState.disabledByHeuristic || false;
+    getSpeakerContent(state, flags) {
+      const mode = state.themeMode || 'neutral';
+      const displayMode = flags.speaker.displayMode;
+      const tier = state.speaker.proximityTier;
 
-      let buttonLabel = '';
-      let title = '';
-      let helper = this.getMessage('speaker.helperText', this._currentTheme) || 
-                   this._content.speaker.helperText?.default || 
-                   'Tap to play the speakers out front when the show is running.';
-
-      if (disabledByHeuristic) {
-        // Speaker is disabled by system
-        buttonLabel = this.getMessage('speaker', 'disabledByHeuristic');
-        title = buttonLabel;
-      } else if (enabled) {
-        // Speaker is on
-        buttonLabel = this.getMessage('speaker', 'enabled');
-        title = buttonLabel;
-      } else {
-        // Speaker is off but available
-        buttonLabel = this.getMessage('speaker', 'disabled');
-        title = buttonLabel;
-      }
+      const cardTitle = this._getSpeakerCardTitle(displayMode, mode);
+      const primaryButtonLabel = this._getSpeakerButtonLabel(displayMode, flags, mode);
+      const proximityConfirmLabel = this.getMessage('speaker', 'buttonLabel', { key: 'proximity_confirm' });
+      const statusMessage = this._getSpeakerStatusMessage(displayMode, state, tier, mode);
+      const helperText = this._getSpeakerHelperText(displayMode, tier, mode);
+      const toasts = this._getSpeakerToasts(mode);
 
       return {
-        enabled: !disabledByHeuristic,
-        buttonLabel,
-        title,
-        helper,
+        cardTitle,
+        primaryButtonLabel,
+        proximityConfirmLabel,
+        extensionButtonLabel: '⏱️ Still Here? +5 Minutes',
+        statusMessage,
+        helperText,
+        countdownLabel: flags.speaker.showCountdown ? `⏱️ ${flags.speaker.countdownValue} remaining` : null,
+        alternatives: {
+          fmLabel: `📻 FM ${state.speaker.config.fmFrequency}`,
+          streamLabel: '🎵 Audio Stream',
+          fmHint: 'Listen in your car',
+          streamHint: 'Perfectly synced audio',
+        },
+        toasts,
+        proximityHint: this._getProximityHint(tier),
+        weatherNotice: null,
+        sessionStats: null,
       };
+    },
+
+    _getSpeakerCardTitle(displayMode, mode) {
+      const titles = this._content.speaker.cardTitle;
+      if (displayMode === 'locked') return titles.locked;
+      if (displayMode === 'curfew') return titles.curfew;
+      if (displayMode === 'unavailable') return titles.unavailable;
+      if (displayMode === 'waiting') return titles.waiting;
+      if (displayMode === 'capped') return titles.capped;
+      if (displayMode === 'proximity_confirm') return titles.proximity_confirm;
+      return titles[mode] || titles.default;
+    },
+
+    _getSpeakerButtonLabel(displayMode, flags, mode) {
+      const labels = this._content.speaker.buttonLabel;
+      if (displayMode === 'off') return labels.off;
+      if (displayMode === 'active') {
+        if (flags.speaker.showCountdown) {
+          return `🔊 On for ${flags.speaker.countdownValue}`;
+        }
+        return labels.active;
+      }
+      if (displayMode === 'extension') return labels.extension;
+      if (displayMode === 'session_ending') return labels.session_ending;
+      if (displayMode === 'locked') return labels.locked;
+      if (displayMode === 'curfew') return labels.curfew;
+      if (displayMode === 'unavailable') return labels.unavailable;
+      if (displayMode === 'waiting') return labels.waiting;
+      if (displayMode === 'capped') return labels.capped;
+      if (displayMode === 'proximity_confirm') return labels.proximity_confirm;
+      return labels.off;
+    },
+
+    _getSpeakerStatusMessage(displayMode, state, tier, mode) {
+      const messages = this._content.speaker.statusMessage;
+      
+      if (displayMode === 'proximity_confirm') {
+        if (tier === 2) return messages.proximity_tier2;
+        if (tier === 3) return messages.proximity_tier3;
+        return messages.proximity_confirm;
+      }
+
+      if (displayMode === 'off' && (tier === 4 || tier === 5)) {
+        if (tier === 4) return messages.proximity_tier4;
+        if (tier === 5) return messages.proximity_tier5;
+      }
+
+      if (state.speaker.currentSong && (displayMode === 'off' || displayMode === 'active')) {
+        return `🎵 "${state.speaker.currentSong}" is playing`;
+      }
+
+      return messages[displayMode] || messages.off;
+    },
+
+    _getSpeakerHelperText(displayMode, tier, mode) {
+      const helpers = this._content.speaker.helperText;
+      
+      if (displayMode === 'proximity_confirm') {
+        return helpers.proximity_confirm;
+      }
+
+      if (displayMode === 'off') {
+        if (tier === 1) return helpers.proximity_tier1;
+        if (tier === 2) return helpers.proximity_tier2;
+        if (tier === 3) return helpers.proximity_tier3;
+        if (tier === 4) return helpers.proximity_tier4;
+      }
+
+      return helpers[displayMode] || helpers.off;
+    },
+
+    _getSpeakerToasts(mode) {
+      const toasts = this._content.speaker.toasts;
+      return {
+        enableSuccess: toasts.enableSuccess[mode] || toasts.enableSuccess.default,
+        extendSuccess: toasts.extendSuccess[mode] || toasts.extendSuccess.default,
+        proximityConfirmed: toasts.proximityConfirmed[mode] || toasts.proximityConfirmed.default,
+        alreadyOn: toasts.alreadyOn,
+        physicalButtonDetected: toasts.physicalButtonDetected,
+        sessionEnding: toasts.sessionEnding,
+        sessionEndingSoon: toasts.sessionEndingSoon,
+        newSessionReady: toasts.newSessionReady,
+      };
+    },
+
+    _getProximityHint(tier) {
+      if (tier === 1) return null;
+      if (tier === 2) return 'You seem a bit away from Long Beach';
+      if (tier === 3) return 'You seem quite far from Long Beach';
+      if (tier === 4) return 'Speakers work best on-site in Long Beach, CA';
+      if (tier === 5) return 'Speakers only available to on-site guests in Long Beach, CA, USA';
+      return null;
     },
   };
 

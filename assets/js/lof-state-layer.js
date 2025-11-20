@@ -1,4 +1,3 @@
-// assets/js/lof-state-layer.js
 (function (window) {
   'use strict';
 
@@ -37,9 +36,30 @@
 
         speaker: {
           enabled: false,
-          userToggled: false,
-          disabledByHeuristic: false,
-          disabledReason: null,
+          remainingSeconds: 0,
+          sessionStartedAt: 0,
+          sessionLifetimeStartedAt: 0,
+          override: false,
+          mode: 'automatic',
+          message: '',
+          source: null,
+          fppPlaying: false,
+          currentSong: null,
+          currentSongAudio: null,
+          maxSessionReached: false,
+          lifetimeCapReached: false,
+          targetSongForShutoff: null,
+          gracefulShutoff: false,
+          proximityTier: 1,
+          proximityReason: '',
+          proximityConfirmed: false,
+          config: {
+            fmFrequency: '107.7',
+            streamUrl: '',
+            noiseCurfewHour: 22,
+            noiseCurfewEnabled: true,
+            noiseCurfewOverride: false,
+          },
         },
 
         recentRequest: null,
@@ -82,6 +102,210 @@
       return () => {
         this._subscribers = this._subscribers.filter((cb) => cb !== callback);
       };
+    },
+
+    setSpeakerState(apiResponse) {
+      if (!apiResponse.success || !apiResponse.data) {
+        console.warn('[StateLayer] Invalid speaker API response', apiResponse);
+        return;
+      }
+
+      const now = Date.now();
+      const data = apiResponse.data;
+
+      this._state.speaker = {
+        enabled: data.enabled,
+        remainingSeconds: data.remainingSeconds || 0,
+        sessionStartedAt: data.sessionStartedAt ? data.sessionStartedAt * 1000 : 0,
+        sessionLifetimeStartedAt: data.sessionLifetimeStartedAt ? data.sessionLifetimeStartedAt * 1000 : 0,
+        override: data.override || false,
+        mode: data.mode || 'automatic',
+        message: data.message || '',
+        source: data.source || null,
+        fppPlaying: data.fppPlaying || false,
+        currentSong: data.currentSong || null,
+        currentSongAudio: data.currentSongAudio || null,
+        maxSessionReached: data.maxSessionReached || false,
+        lifetimeCapReached: data.lifetimeCapReached || false,
+        targetSongForShutoff: data.targetSongForShutoff || null,
+        gracefulShutoff: data.gracefulShutoff || false,
+        proximityTier: data.proximityTier || 1,
+        proximityReason: data.proximityReason || '',
+        proximityConfirmed: this._state.speaker.proximityConfirmed || false,
+        config: {
+          fmFrequency: data.config?.fmFrequency || '107.7',
+          streamUrl: data.config?.streamUrl || '',
+          noiseCurfewHour: data.config?.noiseCurfewHour || 22,
+          noiseCurfewEnabled: data.config?.noiseCurfewEnabled !== false,
+          noiseCurfewOverride: data.config?.noiseCurfewOverride || false,
+        },
+      };
+
+      if (data.fppPlaying !== undefined) {
+        this._state.fppData = this._state.fppData || {};
+        this._state.fppData.status = data.fppPlaying ? 'playing' : 'idle';
+        this._state.fppData.currentSequence = data.currentSong;
+        this._state.fppData.currentSongAudio = data.currentSongAudio;
+      }
+
+      this._recordHistory('SPEAKER_STATE_UPDATED', null, null);
+      this._notifySubscribers();
+    },
+
+    setProximityConfirmed(confirmed) {
+      this._state.speaker.proximityConfirmed = confirmed;
+      this._notifySubscribers();
+    },
+
+    setShowState(rfResponse) {
+      if (!rfResponse.success || !rfResponse.data) {
+        console.warn('[StateLayer] Invalid RF response', rfResponse);
+        return;
+      }
+
+      const data = rfResponse.data;
+
+      this._state.rfData = {
+        nowPlaying: data.nowPlaying,
+        upNext: data.upNext,
+        queue: data.queue || [],
+        availableSongs: data.availableSongs || [],
+        showStatus: data.showStatus,
+        requestsEnabled: data.requestsEnabled,
+      };
+
+      this._state.lastRFUpdate = Date.now();
+      this._state.errors.rf = null;
+      this._state.consecutiveFailures.rf = 0;
+
+      this._recordHistory('RF_STATE_UPDATED', null, null);
+      this._notifySubscribers();
+    },
+
+    setFPPStatus(fppResponse) {
+      if (!fppResponse.success || !fppResponse.data) {
+        this._state.fppData = { status: 'unreachable', currentSequence: null, currentSongAudio: null };
+        this._state.consecutiveFailures.fpp += 1;
+      } else {
+        const data = fppResponse.data;
+        this._state.fppData = {
+          status: data.mode === 'playing' ? 'playing' : 'idle',
+          currentSequence: data.currentSequence,
+          currentSongAudio: data.currentSongAudio,
+          secondsRemaining: data.secondsRemaining || 0,
+        };
+        this._state.lastFPPUpdate = Date.now();
+        this._state.errors.fpp = null;
+        this._state.consecutiveFailures.fpp = 0;
+      }
+
+      this._recordHistory('FPP_STATUS_UPDATED', null, null);
+      this._notifySubscribers();
+    },
+
+    tickSpeakerCountdown() {
+      if (this._state.speaker.remainingSeconds > 0) {
+        this._state.speaker.remainingSeconds -= 1;
+        this._notifySubscribers();
+      }
+    },
+
+    canUseSpeaker() {
+      const state = this._state;
+      const currentHour = new Date().getHours();
+
+      if (state.speaker.override && state.speaker.mode === 'locked_on') {
+        return {
+          allowed: false,
+          code: 'OVERRIDE_LOCKED',
+          reasonKey: 'lockedByEvent',
+          displayMode: 'locked',
+        };
+      }
+
+      if (
+        state.speaker.config.noiseCurfewEnabled &&
+        !state.speaker.config.noiseCurfewOverride &&
+        currentHour >= state.speaker.config.noiseCurfewHour
+      ) {
+        return {
+          allowed: false,
+          code: 'NOISE_CURFEW',
+          reasonKey: 'noiseCurfew',
+          displayMode: 'curfew',
+        };
+      }
+
+      if (state.fppData?.status === 'unreachable') {
+        return {
+          allowed: false,
+          code: 'FPP_UNREACHABLE',
+          reasonKey: 'fppOffline',
+          displayMode: 'unavailable',
+        };
+      }
+
+      if (state.fppData?.status !== 'playing') {
+        return {
+          allowed: false,
+          code: 'NOT_PLAYING',
+          reasonKey: 'nothingPlaying',
+          displayMode: 'waiting',
+        };
+      }
+
+      if (state.speaker.lifetimeCapReached) {
+        return {
+          allowed: false,
+          code: 'LIFETIME_CAP_REACHED',
+          reasonKey: 'lifetimeCapReached',
+          displayMode: 'capped',
+        };
+      }
+
+      return {
+        allowed: true,
+        code: 'OK',
+        reasonKey: null,
+        displayMode: 'active',
+      };
+    },
+
+    canExtendSpeaker() {
+      const state = this._state;
+
+      if (!state.speaker.enabled) {
+        return false;
+      }
+
+      if (state.speaker.remainingSeconds > 30) {
+        return false;
+      }
+
+      if (state.speaker.remainingSeconds <= 0) {
+        return false;
+      }
+
+      if (state.speaker.maxSessionReached || state.speaker.lifetimeCapReached) {
+        return false;
+      }
+
+      const sessionDuration = (Date.now() - state.speaker.sessionStartedAt) / 1000;
+      if (sessionDuration >= 900) {
+        return false;
+      }
+
+      return true;
+    },
+
+    needsProximityConfirmation() {
+      const state = this._state;
+      return (state.speaker.proximityTier === 2 || state.speaker.proximityTier === 3) && !state.speaker.proximityConfirmed;
+    },
+
+    trackUserAction(actionType) {
+      const now = Date.now();
+      this._state.interactionCount += 1;
     },
 
     determineStateFromData(rfResponse, fppResponse, consecutiveFailures) {
@@ -137,14 +361,8 @@
 
       const isShowActive = state.rfData?.showStatus === 'active';
       const isInDegradedMode = state.currentState === 'DEGRADED';
-
       const isDataFresh = now - state.lastRFUpdate < 30000;
-
-      // FIXED: Removed global cooldown check - cooldowns are now per-song in InteractionLayer
-      // This matches v1 behavior where users can request different songs with only per-song cooldowns
       const canMakeRequest = state.currentState === 'ACTIVE';
-
-      // FIXED: This is no longer used for blocking requests, kept for display purposes only
       const cooldownRemaining = 0;
 
       return {
@@ -159,7 +377,11 @@
         canMakeRequest,
         cooldownRemaining,
         displayStatus: this._getDisplayStatus(state),
-        primaryAction: shouldShowRequestButton ? 'REQUEST_SONG' : shouldShowSurpriseMe ? 'SURPRISE_ME' : null,
+        primaryAction: shouldShowRequestButton
+          ? 'REQUEST_SONG'
+          : shouldShowSurpriseMe
+          ? 'SURPRISE_ME'
+          : null,
         dataAge: {
           rf: now - state.lastRFUpdate,
           fpp: now - state.lastFPPUpdate,
@@ -180,11 +402,10 @@
           history: this._history.slice(-10),
         },
         null,
-        2,
+        2
       );
     },
 
-    // internal helpers
     _notifySubscribers() {
       const snapshot = this.getState();
       this._subscribers.forEach((cb) => {
