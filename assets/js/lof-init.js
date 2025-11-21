@@ -18,20 +18,20 @@
 
     const config = window.LOF_CONFIG;
 
-    // Initialize API clients
-    if (window.RFClient) {
-      RFClient.init(config.restBase + '/show', config.restBase + '/request', config.restBase + '/vote');
+    // API clients get config from window.LOF_CONFIG directly (no init needed)
+    if (!window.RFClient) {
+      console.error('[LOF Init] RFClient not loaded');
+      return;
     }
 
-    if (window.FPPClient) {
-      FPPClient.init(config.restBase + '/fpp/status');
+    if (!window.FPPClient) {
+      console.error('[LOF Init] FPPClient not loaded');
+      return;
     }
 
-    if (window.LOFClient) {
-      LOFClient.init(
-        config.restBase + '/speaker',
-        config.restBase + '/speaker/notify'
-      );
+    if (!window.LOFClient) {
+      console.error('[LOF Init] LOFClient not loaded');
+      return;
     }
 
     // Initialize layers

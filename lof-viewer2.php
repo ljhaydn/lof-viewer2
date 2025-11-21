@@ -101,8 +101,12 @@ function lof_viewer_v2_enqueue_assets() {
     );
     
     // Pass config to JS
+    $rest_base = rest_url('lof-viewer/v1');
+    
     $config = array(
-        'restBase' => rest_url('lof-viewer/v1'),
+        'restBase' => $rest_base,
+        'rfProxyBaseUrl' => $rest_base,  // For existing API layer
+        'fppBaseUrl' => $rest_base . '/fpp',  // For existing API layer
         'nonce' => wp_create_nonce('wp_rest'),
         'features' => array(
             'requestsEnabled' => true,
