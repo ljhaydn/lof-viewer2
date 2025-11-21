@@ -1,13 +1,13 @@
+// assets/js/lof-interaction-layer.js
 (function (window) {
   'use strict';
 
   const InteractionLayer = {
     _pollHandle: null,
+    _countdownHandle: null,
     _songCooldowns: new Map(),
     _actionInProgress: false,
-    _countdownInterval: null,
     _lastSpeakerState: null,
-    _lastPhysicalToastAt: 0,
 
     init() {
       this._attachEvents();
@@ -16,13 +16,19 @@
       StateLayer.subscribeToState((state) => {
         const derived = StateLayer.getDerivedState();
         ViewLayer.render(state, derived);
-        this.detectPhysicalButtonPress(state);
+
+        // Manage countdown interval
+        this._manageCountdown(state);
+
+        // Detect physical button press
+        this._detectPhysicalButtonPress(state);
       });
 
       this.startPolling();
     },
 
     _attachEvents() {
+      // Song tiles
       document.addEventListener('click', (evt) => {
         const tile = evt.target.closest('[data-lof-song-id]');
         if (tile && !tile.disabled) {
@@ -31,57 +37,62 @@
         }
       });
 
+      // Surprise Me button
       const surpriseBtn = document.querySelector('[data-lof="surprise-me"]');
       if (surpriseBtn) {
         surpriseBtn.addEventListener('click', () => this.handleSurpriseMe());
       }
 
-      const speakerBtn = document.getElementById('speaker-primary-btn');
+      // Speaker primary button (enable/extend)
+      const speakerBtn = document.querySelector('[data-lof="speaker-primary-btn"]');
       if (speakerBtn) {
         speakerBtn.addEventListener('click', () => {
-          const state = StateLayer.getState();
-          const flags = ThemeLayer.mapStateToFlags(state);
-
-          if (flags.speaker.buttonEnabled) {
-            if (flags.speaker.displayMode === 'extension') {
-              this.handleSpeakerExtend();
-            } else {
-              this.handleSpeakerToggle();
-            }
+          const action = speakerBtn.dataset.action || 'enable';
+          if (action === 'extend') {
+            this.handleSpeakerExtend();
+          } else if (action === 'enable') {
+            this.handleSpeakerEnable();
           }
         });
       }
 
-      const proximityConfirmBtn = document.getElementById('speaker-proximity-confirm-btn');
-      if (proximityConfirmBtn) {
-        proximityConfirmBtn.addEventListener('click', () => this.handleProximityConfirm());
+      // Speaker proximity confirm button
+      const proximityBtn = document.querySelector('[data-lof="speaker-proximity-btn"]');
+      if (proximityBtn) {
+        proximityBtn.addEventListener('click', () => this.handleProximityConfirm());
       }
 
-      const streamBtn = document.getElementById('stream-btn');
+      // FM info button
+      const fmBtn = document.querySelector('[data-lof="fm-btn"]');
+      if (fmBtn) {
+        fmBtn.addEventListener('click', () => this.handleFMInfo());
+      }
+
+      // Stream buttons
+      const streamBtn = document.querySelector('[data-lof="stream-btn"]');
       if (streamBtn) {
         streamBtn.addEventListener('click', () => this.handleStreamOpen());
       }
 
-      const streamStartBtn = document.getElementById('stream-start-btn');
+      const streamStartBtn = document.querySelector('[data-lof="stream-start-btn"]');
       if (streamStartBtn) {
         streamStartBtn.addEventListener('click', () => this.handleStreamStart());
       }
 
-      const streamCloseBtn = document.getElementById('stream-close-btn');
+      const streamCloseBtn = document.querySelector('[data-lof="stream-close-btn"]');
       if (streamCloseBtn) {
         streamCloseBtn.addEventListener('click', () => this.handleStreamClose());
       }
 
-      const streamMinimizeBtn = document.getElementById('stream-minimize-btn');
+      const streamMinimizeBtn = document.querySelector('[data-lof="stream-minimize-btn"]');
       if (streamMinimizeBtn) {
         streamMinimizeBtn.addEventListener('click', () => this.handleStreamMinimize());
       }
-
-      const fmBtn = document.getElementById('fm-info-btn');
-      if (fmBtn) {
-        fmBtn.addEventListener('click', () => this.handleFMInfo());
-      }
     },
+
+    // ========================================
+    // SONG REQUEST HANDLERS
+    // ========================================
 
     async handleSongRequest(songId) {
       if (this._actionInProgress) return;
@@ -128,7 +139,10 @@
             })
           );
 
-          LOFClient.logTelemetry({
+          // Track activity for speaker timer reset
+          StateLayer.recordSpeakerActivity('song_request');
+
+          this._logTelemetry({
             event: 'song_request',
             songId,
             queuePosition: res.data?.queuePosition,
@@ -186,7 +200,10 @@
             })
           );
 
-          LOFClient.logTelemetry({
+          // Track activity for speaker timer reset
+          StateLayer.recordSpeakerActivity('surprise_me');
+
+          this._logTelemetry({
             event: 'surprise_me',
             songId: randomSong.songId,
             timestamp: Date.now(),
@@ -203,185 +220,214 @@
       }
     },
 
-    async handleProximityConfirm() {
-      StateLayer.setProximityConfirmed(true);
-      StateLayer.trackUserAction('proximity_confirmed');
+    // ========================================
+    // SPEAKER HANDLERS
+    // ========================================
 
-      const state = StateLayer.getState();
-      const flags = ThemeLayer.mapStateToFlags(state);
-      const content = ContentLayer.getSpeakerContent(state, flags);
-
-      ViewLayer.showSuccess(content.toasts.proximityConfirmed);
-      ViewLayer.updateUI(StateLayer.getState());
-    },
-
-    async handleSpeakerToggle() {
+    async handleSpeakerEnable() {
       if (this._actionInProgress) return;
 
       const state = StateLayer.getState();
+      const canUse = StateLayer.canUseSpeaker();
 
-      StateLayer.trackUserAction('speaker_enable');
+      if (!canUse.allowed) {
+        console.warn('[InteractionLayer] Cannot use speaker:', canUse.reason);
+        return;
+      }
 
       this._actionInProgress = true;
-      ViewLayer.setButtonLoading('speaker-primary', true);
+      ViewLayer.showLoading(ContentLayer.getMessage('loading', 'speaker'));
 
-      const response = await LOFClient.enableSpeaker(false, state.speaker.proximityConfirmed);
+      try {
+        const needsProximity = StateLayer.needsProximityConfirmation();
+        const res = await LOFClient.enableSpeaker(false, state.speaker.proximityConfirmed);
 
-      this._actionInProgress = false;
-      ViewLayer.setButtonLoading('speaker-primary', false);
+        if (res.success) {
+          StateLayer.setSpeakerState(res);
 
-      if (response.success) {
-        StateLayer.setSpeakerState(response);
+          ViewLayer.showSuccess(ContentLayer.getMessage('success', 'speaker_enabled'));
 
-        const freshState = StateLayer.getState();
-        const flags = ThemeLayer.mapStateToFlags(freshState);
-        const content = ContentLayer.getSpeakerContent(freshState, flags);
-
-        ViewLayer.showSuccess(response.data.message || content.toasts.enableSuccess);
-
-        this._startCountdown();
-      } else {
-        const freshState = StateLayer.getState();
-        const message = ContentLayer.getErrorMessage(response.errorCode, freshState);
-        ViewLayer.showError(response.error || message);
+          this._logTelemetry({
+            event: 'speaker_enabled',
+            timestamp: Date.now(),
+          });
+        } else {
+          if (res.errorCode === 'PROXIMITY_REQUIRED') {
+            // Show proximity button
+            StateLayer.setProximityConfirmed(false);
+            ViewLayer.showError({ code: 'SPEAKER_FAILED', context: {} });
+          } else {
+            ViewLayer.showError({ code: res.errorCode || 'SPEAKER_FAILED', context: {} });
+          }
+        }
+      } catch (err) {
+        console.error('[InteractionLayer] handleSpeakerEnable failed', err);
+        ViewLayer.showError({ code: 'UNKNOWN', context: {} });
+      } finally {
+        this._actionInProgress = false;
       }
     },
 
     async handleSpeakerExtend() {
       if (this._actionInProgress) return;
 
-      const state = StateLayer.getState();
+      const canExtend = StateLayer.canExtendSpeaker();
 
-      StateLayer.trackUserAction('speaker_extend');
-
-      this._actionInProgress = true;
-      ViewLayer.setButtonLoading('speaker-primary', true);
-
-      const response = await LOFClient.enableSpeaker(true, state.speaker.proximityConfirmed);
-
-      this._actionInProgress = false;
-      ViewLayer.setButtonLoading('speaker-primary', false);
-
-      if (response.success) {
-        StateLayer.setSpeakerState(response);
-
-        const freshState = StateLayer.getState();
-        const flags = ThemeLayer.mapStateToFlags(freshState);
-        const content = ContentLayer.getSpeakerContent(freshState, flags);
-
-        ViewLayer.showSuccess(response.data.message || content.toasts.extendSuccess);
-
-        this._startCountdown();
-      } else {
-        const freshState = StateLayer.getState();
-        const message = ContentLayer.getErrorMessage(response.errorCode, freshState);
-        ViewLayer.showError(response.error || message);
-      }
-    },
-
-    handleStreamOpen() {
-      const state = StateLayer.getState();
-      const streamUrl = state.speaker.config.streamUrl;
-
-      if (!streamUrl) {
-        ViewLayer.showError('Audio stream is not available right now.');
+      if (!canExtend.allowed) {
+        console.warn('[InteractionLayer] Cannot extend speaker:', canExtend.reason);
         return;
       }
 
-      StateLayer.trackUserAction('stream_open');
-      ViewLayer.showStreamPlayer();
-    },
+      this._actionInProgress = true;
+      ViewLayer.showLoading(ContentLayer.getMessage('loading', 'speaker'));
 
-    handleStreamStart() {
-      const state = StateLayer.getState();
-      const streamUrl = state.speaker.config.streamUrl;
+      try {
+        const res = await LOFClient.enableSpeaker(true, false);
 
-      ViewLayer.loadStreamIframe(streamUrl);
-      StateLayer.trackUserAction('stream_start');
-    },
+        if (res.success) {
+          StateLayer.setSpeakerState(res);
 
-    handleStreamClose() {
-      ViewLayer.hideStreamPlayer();
-    },
+          ViewLayer.showSuccess(ContentLayer.getMessage('success', 'speaker_extended'));
 
-    handleStreamMinimize() {
-      const player = document.getElementById('stream-mini-player');
-      if (!player) return;
-
-      if (player.classList.contains('lof-stream-player--minimized')) {
-        ViewLayer.expandStreamPlayer();
-      } else {
-        ViewLayer.minimizeStreamPlayer();
+          this._logTelemetry({
+            event: 'speaker_extended',
+            timestamp: Date.now(),
+          });
+        } else {
+          ViewLayer.showError({ code: res.errorCode || 'SPEAKER_FAILED', context: {} });
+        }
+      } catch (err) {
+        console.error('[InteractionLayer] handleSpeakerExtend failed', err);
+        ViewLayer.showError({ code: 'UNKNOWN', context: {} });
+      } finally {
+        this._actionInProgress = false;
       }
+    },
+
+    handleProximityConfirm() {
+      StateLayer.setProximityConfirmed(true);
+      ViewLayer.showSuccess('Proximity confirmed! You can now enable speakers.');
     },
 
     handleFMInfo() {
       const state = StateLayer.getState();
-      const freq = state.speaker.config.fmFrequency;
+      const frequency = state.speaker?.config?.fmFrequency || '107.7';
+      ViewLayer.showSuccess(`Tune your FM radio to ${frequency} to hear the show!`);
+    },
 
-      ViewLayer.showInfo(`Tune your car radio to FM ${freq} to listen!`);
-      StateLayer.trackUserAction('fm_info');
+    handleStreamOpen() {
+      const state = StateLayer.getState();
+      const streamUrl = state.speaker?.config?.streamUrl || '';
+
+      if (!streamUrl) {
+        ViewLayer.showError({ code: 'UNKNOWN', context: {} });
+        return;
+      }
+
+      ViewLayer.showStreamPlayer(streamUrl);
+    },
+
+    handleStreamStart() {
+      const state = StateLayer.getState();
+      const streamUrl = state.speaker?.config?.streamUrl || '';
+
+      if (!streamUrl) {
+        ViewLayer.showError({ code: 'UNKNOWN', context: {} });
+        return;
+      }
+
+      ViewLayer.startStreamPlayback(streamUrl);
+
+      this._logTelemetry({
+        event: 'stream_started',
+        timestamp: Date.now(),
+      });
+    },
+
+    handleStreamClose() {
+      ViewLayer.hideStreamPlayer();
+
+      this._logTelemetry({
+        event: 'stream_closed',
+        timestamp: Date.now(),
+      });
+    },
+
+    handleStreamMinimize() {
+      ViewLayer.minimizeStreamPlayer();
+    },
+
+    // ========================================
+    // COUNTDOWN MANAGEMENT
+    // ========================================
+
+    _manageCountdown(state) {
+      const speaker = state.speaker || {};
+
+      if (speaker.enabled && speaker.remainingSeconds > 0) {
+        // Start countdown if not running
+        if (!this._countdownHandle) {
+          this._startCountdown();
+        }
+      } else {
+        // Stop countdown if running
+        if (this._countdownHandle) {
+          this._stopCountdown();
+        }
+      }
     },
 
     _startCountdown() {
-      if (this._countdownInterval) {
-        clearInterval(this._countdownInterval);
-      }
+      if (this._countdownHandle) return;
 
-      this._countdownInterval = setInterval(() => {
+      console.debug('[InteractionLayer] Starting countdown interval');
+
+      this._countdownHandle = setInterval(() => {
         const state = StateLayer.getState();
-        
-        // If speaker off, stop countdown
-        if (!state.speaker.enabled) {
-          this._stopCountdown();
+        const speaker = state.speaker || {};
+
+        if (speaker.gracefulShutoff) {
+          // Protection mode - use FPP time, don't tick locally
           return;
         }
 
-        // If in protection mode, countdown uses FPP time (handled by polling)
-        // If in active timer mode, tick down remainingSeconds
-        if (!state.speaker.gracefulShutoff && state.speaker.remainingSeconds > 0) {
+        if (speaker.enabled && speaker.remainingSeconds > 0) {
           StateLayer.tickSpeakerCountdown();
-        }
-
-        // Stop if reached 0
-        if (state.speaker.remainingSeconds <= 0 && !state.speaker.gracefulShutoff) {
+        } else {
           this._stopCountdown();
         }
       }, 1000);
     },
 
     _stopCountdown() {
-      if (this._countdownInterval) {
-        clearInterval(this._countdownInterval);
-        this._countdownInterval = null;
+      if (this._countdownHandle) {
+        clearInterval(this._countdownHandle);
+        this._countdownHandle = null;
+        console.debug('[InteractionLayer] Stopped countdown interval');
       }
     },
 
-    detectPhysicalButtonPress(newState) {
-      if (!this._lastSpeakerState) {
-        this._lastSpeakerState = newState.speaker;
-        return;
+    // ========================================
+    // PHYSICAL BUTTON DETECTION
+    // ========================================
+
+    _detectPhysicalButtonPress(state) {
+      const current = state.speaker || {};
+      const last = this._lastSpeakerState || {};
+
+      // Detect transition from off -> on with physical source
+      if (!last.enabled && current.enabled && current.source === 'physical') {
+        console.debug('[InteractionLayer] Physical button press detected');
+        ViewLayer.showSuccess('Speakers turned on via front button!');
       }
 
-      const wasOff = !this._lastSpeakerState.enabled;
-      const nowOn = newState.speaker.enabled;
-      const source = newState.speaker.source;
-
-      if (wasOff && nowOn && source === 'physical') {
-        const now = Date.now();
-        if (now - this._lastPhysicalToastAt > 5000) {
-          const content = ContentLayer.getSpeakerContent(newState, ThemeLayer.mapStateToFlags(newState));
-          ViewLayer.showInfo(content.toasts.physicalButtonDetected);
-          this._lastPhysicalToastAt = now;
-
-          if (!this._countdownInterval) {
-            this._startCountdown();
-          }
-        }
-      }
-
-      this._lastSpeakerState = newState.speaker;
+      // Update last state
+      this._lastSpeakerState = { ...current };
     },
+
+    // ========================================
+    // POLLING
+    // ========================================
 
     startPolling() {
       if (this._pollHandle) return;
@@ -403,6 +449,8 @@
         LOFClient.getSpeakerStatus(),
       ]);
 
+      console.debug('[InteractionLayer] Poll results:', { rfRes, fppRes, speakerRes });
+
       const consecutiveFailures = {
         rf: rfRes.success ? 0 : current.consecutiveFailures.rf + 1,
         fpp: fppRes.success ? 0 : current.consecutiveFailures.fpp + 1,
@@ -410,20 +458,10 @@
 
       const newStateName = StateLayer.determineStateFromData(rfRes, fppRes, consecutiveFailures);
 
-      if (rfRes.success) {
-        StateLayer.setShowState(rfRes);
-      }
-
-      if (fppRes.success) {
-        StateLayer.setFPPStatus(fppRes);
-      }
-
-      if (speakerRes.success) {
-        StateLayer.setSpeakerState(speakerRes);
-      }
-
       StateLayer.setState(
         {
+          rfData: rfRes.success ? rfRes.data : current.rfData,
+          fppData: fppRes.success ? fppRes.data : current.fppData,
           lastRFUpdate: rfRes.success ? Date.now() : current.lastRFUpdate,
           lastFPPUpdate: fppRes.success ? Date.now() : current.lastFPPUpdate,
           errors: {
@@ -436,7 +474,16 @@
         },
         'POLL_UPDATE'
       );
+
+      // Update speaker state separately
+      if (speakerRes.success) {
+        StateLayer.setSpeakerState(speakerRes);
+      }
     },
+
+    // ========================================
+    // SESSION MANAGEMENT
+    // ========================================
 
     _restoreSession() {
       try {
@@ -473,6 +520,19 @@
         );
       } catch (err) {
         console.warn('[InteractionLayer] _saveSession failed', err);
+      }
+    },
+
+    // ========================================
+    // HELPER METHODS
+    // ========================================
+
+    _logTelemetry(data) {
+      if (window.LOFClient && typeof window.LOFClient.logTelemetry === 'function') {
+        return window.LOFClient.logTelemetry(data);
+      } else {
+        console.debug('[InteractionLayer] Telemetry (stubbed):', data);
+        return Promise.resolve({ success: true });
       }
     },
   };

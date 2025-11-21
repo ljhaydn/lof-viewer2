@@ -1,291 +1,197 @@
 <?php
 /**
- * Plugin Name: LOF Viewer V2
- * Description: Lights on Falcon viewer with speaker control
- * Version: 0.2.0
- * Author: Lights on Falcon
+ * Plugin Name: Lights on Falcon Viewer v2
+ * Description: New microframework-based viewer for Lights on Falcon, integrating Remote Falcon + FPP + Speaker via WP REST.
+ * Version:     0.2.0
+ * Author:      Lights on Falcon
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define('LOF_VIEWER_V2_VERSION', '0.2.0');
-define('LOF_VIEWER_V2_PATH', plugin_dir_path(__FILE__));
-define('LOF_VIEWER_V2_URL', plugin_dir_url(__FILE__));
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-lof-viewer2-rest.php';
 
-// Load REST API handler
-require_once LOF_VIEWER_V2_PATH . 'includes/class-lof-viewer2-rest.php';
-
-// Initialize REST routes
-add_action('plugins_loaded', function() {
+add_action( 'plugins_loaded', 'lof_viewer2_init' );
+function lof_viewer2_init() {
     LOF_Viewer2_REST::init();
-});
-
-// Enqueue scripts and styles
-add_action('wp_enqueue_scripts', 'lof_viewer_v2_enqueue_assets');
-
-function lof_viewer_v2_enqueue_assets() {
-    if (!is_singular() && !is_page()) {
-        return;
-    }
-    
-    global $post;
-    if (!$post || !has_shortcode($post->post_content, 'lof_viewer_v2')) {
-        return;
-    }
-    
-    // CSS
-    wp_enqueue_style(
-        'lof-viewer-v2',
-        LOF_VIEWER_V2_URL . 'assets/css/lof-base.css',
-        array(),
-        LOF_VIEWER_V2_VERSION
-    );
-    
-    // Core layers (order matters)
-    wp_enqueue_script(
-        'lof-api-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-api-layer.js',
-        array(),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-state-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-state-layer.js',
-        array('lof-api-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-theme-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-theme-layer.js',
-        array('lof-state-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-content-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-content-layer.js',
-        array('lof-theme-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-view-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-view-layer.js',
-        array('lof-content-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-interaction-layer',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-interaction-layer.js',
-        array('lof-view-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    wp_enqueue_script(
-        'lof-init',
-        LOF_VIEWER_V2_URL . 'assets/js/lof-init.js',
-        array('lof-interaction-layer'),
-        LOF_VIEWER_V2_VERSION,
-        true
-    );
-    
-    // Pass config to JS
-    $rest_base = rest_url('lof-viewer/v1');
-    
-    $config = array(
-        'restBase' => $rest_base,
-        'rfProxyBaseUrl' => $rest_base,  // For existing API layer
-        'fppBaseUrl' => $rest_base . '/fpp',  // For existing API layer
-        'nonce' => wp_create_nonce('wp_rest'),
-        'features' => array(
-            'requestsEnabled' => true,
-            'surpriseMeEnabled' => true,
-            'speakerControlEnabled' => true,
-        ),
-        'theme' => 'christmas',
-        'debug' => defined('WP_DEBUG') && WP_DEBUG,
-    );
-    
-    wp_localize_script('lof-init', 'LOF_CONFIG', $config);
 }
 
-// Main shortcode
-add_shortcode('lof_viewer_v2', 'lof_viewer_v2_shortcode');
+function lof_viewer2_enqueue_assets() {
+    if ( ! is_singular() ) {
+        return;
+    }
 
-function lof_viewer_v2_shortcode($atts) {
-    $atts = shortcode_atts(array(
-        'theme' => 'christmas',
-    ), $atts);
-    
+    global $post;
+
+    if ( ! has_shortcode( $post->post_content, 'lof_viewer_v2' ) ) {
+        return;
+    }
+
+    $plugin_url = plugin_dir_url( __FILE__ );
+
+    wp_enqueue_script( 'lof-viewer2-api', $plugin_url . 'assets/js/lof-api-layer.js', array(), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-state', $plugin_url . 'assets/js/lof-state-layer.js', array( 'lof-viewer2-api' ), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-theme', $plugin_url . 'assets/js/lof-theme-layer.js', array( 'lof-viewer2-state' ), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-content', $plugin_url . 'assets/js/lof-content-layer.js', array( 'lof-viewer2-theme' ), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-view', $plugin_url . 'assets/js/lof-view-layer.js', array( 'lof-viewer2-content' ), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-interaction', $plugin_url . 'assets/js/lof-interaction-layer.js', array( 'lof-viewer2-view' ), '0.2.0', true );
+    wp_enqueue_script( 'lof-viewer2-init', $plugin_url . 'assets/js/lof-init.js', array( 'lof-viewer2-interaction' ), '0.2.0', true );
+
+    wp_enqueue_style( 'lof-viewer2-style', $plugin_url . 'assets/css/lof-base.css', array(), '0.2.0' );
+
+    $theme = 'christmas';
+
+    $rf_proxy_base = rest_url( 'lof-viewer/v1' );
+    $lof_base      = rest_url( 'lof/v1' );
+    $fpp_base      = rest_url( 'lof-viewer/v1/fpp' );
+
+    $config = array(
+        'rfProxyBaseUrl'   => untrailingslashit( $rf_proxy_base ),
+        'lofBaseUrl'       => untrailingslashit( $lof_base ),
+        'fppBaseUrl'       => untrailingslashit( $fpp_base ),
+        'theme'            => $theme,
+        'polling'          => array(
+            'intervalMs'        => 15000,
+            'maxBackoffMs'      => 30000,
+            'rfDebounceMs'      => 0,
+            'fppDebounceMs'     => 0,
+            'connectionTimeout' => 10000,
+        ),
+        'copy'             => array(),
+        'lofInitialConfig' => array(
+            'features' => array(
+                'requestsEnabled'       => true,
+                'surpriseMeEnabled'     => true,
+                'speakerControlEnabled' => true,
+            ),
+        ),
+    );
+
+    $inline = 'window.LOF_CONFIG = ' . wp_json_encode( $config ) . ';';
+    wp_add_inline_script( 'lof-viewer2-init', $inline, 'before' );
+}
+add_action( 'wp_enqueue_scripts', 'lof_viewer2_enqueue_assets' );
+
+function lof_viewer2_shortcode() {
     ob_start();
     ?>
-    <div id="lof-viewer-root" class="lof-viewer lof-theme--<?php echo esc_attr($atts['theme']); ?>">
+    <div id="lof-viewer-v2-root" class="lof-viewer-shell lof-viewer lof-state--loading">
         
-        <!-- Status Bar -->
-        <div id="lof-status-bar" class="lof-status-bar">
-            <div class="lof-status-indicator" id="lof-status-indicator">
-                <span class="lof-status-text" id="lof-status-text">Connecting...</span>
+        <!-- STATUS PANEL -->
+        <section class="lof-status" data-lof="status-panel">
+            <div class="lof-status-indicator-wrapper">
+                <span class="lof-state-indicator lof-state--loading" data-lof="state-indicator"></span>
             </div>
-        </div>
-        
-        <!-- Toast Container -->
-        <div id="lof-toast-container" class="lof-toast-container"></div>
-        
-        <!-- Main Content -->
-        <div class="lof-content">
+            <div class="lof-status-copy">
+                <div class="lof-status-headline" data-lof="status-text">Connecting to the light show...</div>
+                <div class="lof-status-warning" data-lof="connection-warning" style="display:none;"></div>
+            </div>
+        </section>
+
+        <!-- NOW / NEXT -->
+        <section class="lof-now-next">
+            <div class="lof-now">
+                <h2 class="lof-section-title">Now Playing</h2>
+                <div class="lof-track">
+                    <div class="lof-track-title" data-lof="now-title">Intermission</div>
+                    <div class="lof-track-artist" data-lof="now-artist"></div>
+                </div>
+            </div>
+            <div class="lof-next">
+                <h3 class="lof-section-subtitle">Up Next</h3>
+                <div class="lof-track">
+                    <div class="lof-track-title" data-lof="next-title">Tuning the lights…</div>
+                    <div class="lof-track-artist" data-lof="next-artist"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ACTIONS -->
+        <section class="lof-actions">
+            <button class="lof-button" type="button" data-lof="surprise-me">Surprise Me!</button>
+        </section>
+
+        <!-- SPEAKER CARD -->
+        <section class="lof-speaker-card" data-lof="speaker-card" style="display:none;">
+            <div class="lof-speaker-header">
+                <h3 class="lof-speaker-title" data-lof="speaker-title">🔊 Outdoor Speakers</h3>
+            </div>
             
-            <!-- Now Playing / Up Next -->
-            <div class="lof-section lof-section--now-playing">
-                <div id="lof-now-playing-card" class="lof-card lof-card--now-playing">
-                    <h2 class="lof-card-title">Now Playing</h2>
-                    <div id="lof-now-playing-content" class="lof-now-playing-content">
-                        <div class="lof-skeleton"></div>
+            <div class="lof-speaker-body">
+                <!-- Status Text -->
+                <div class="lof-speaker-status" data-lof="speaker-status">Loading speaker status...</div>
+                
+                <!-- Countdown -->
+                <div class="lof-speaker-countdown" data-lof="speaker-countdown" style="display:none;">
+                    ⏱️ <span data-lof="speaker-countdown-value">5:00</span> remaining
+                </div>
+                
+                <!-- Proximity Confirm Button -->
+                <button class="lof-button lof-button--proximity" data-lof="speaker-proximity-btn" style="display:none;">
+                    ✓ Yes, I'm at the show
+                </button>
+                
+                <!-- Primary Button -->
+                <button class="lof-button lof-button--speaker" data-lof="speaker-primary-btn">
+                    Turn On Speakers
+                </button>
+                
+                <!-- Helper Text -->
+                <p class="lof-speaker-helper" data-lof="speaker-helper"></p>
+                
+                <!-- Alternatives (FM/Stream) -->
+                <div class="lof-speaker-alternatives" data-lof="speaker-alternatives">
+                    <div class="lof-alternatives-title">Listen another way:</div>
+                    <div class="lof-alternatives-buttons">
+                        <button class="lof-button lof-button--alt" data-lof="fm-btn">
+                            📻 FM <span data-lof="fm-frequency">107.7</span>
+                        </button>
+                        <button class="lof-button lof-button--alt" data-lof="stream-btn">
+                            🌐 Audio Stream
+                        </button>
                     </div>
                 </div>
                 
-                <div id="lof-up-next-card" class="lof-card lof-card--up-next">
-                    <h3 class="lof-card-title">Up Next</h3>
-                    <div id="lof-up-next-content" class="lof-up-next-content">
-                        <div class="lof-skeleton"></div>
-                    </div>
-                </div>
+                <!-- Proximity Hint -->
+                <div class="lof-speaker-hint" data-lof="speaker-hint" style="display:none;"></div>
             </div>
-            
-            <!-- Speaker Control Card -->
-            <div id="lof-speaker-section" class="lof-section lof-section--speaker">
-                <div class="lof-card lof-card--speaker">
-                    <div class="lof-speaker-header">
-                        <h3 class="lof-card-title">🔊 Outdoor Speakers</h3>
-                    </div>
-                    
-                    <div id="lof-speaker-content" class="lof-speaker-content">
-                        
-                        <!-- Status Text -->
-                        <div id="lof-speaker-status" class="lof-speaker-status">
-                            <p id="lof-speaker-status-text">Loading speaker status...</p>
-                        </div>
-                        
-                        <!-- Countdown -->
-                        <div id="lof-speaker-countdown-wrapper" class="lof-speaker-countdown-wrapper" style="display: none;">
-                            <div id="lof-speaker-countdown" class="lof-speaker-countdown">
-                                <span id="lof-speaker-countdown-value">5:00</span>
-                                <span class="lof-speaker-countdown-label">remaining</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Primary Button -->
-                        <button 
-                            id="speaker-primary-btn" 
-                            class="lof-btn lof-btn--primary lof-btn--speaker"
-                            aria-label="Speaker control">
-                            🔊 Turn On Speakers
-                        </button>
-                        
-                        <!-- Helper Text -->
-                        <p id="lof-speaker-helper" class="lof-speaker-helper"></p>
-                        
-                        <!-- Alternatives (FM/Stream) -->
-                        <div id="lof-speaker-alternatives" class="lof-speaker-alternatives">
-                            <div class="lof-alternatives-title">Listen another way:</div>
-                            <div class="lof-alternatives-buttons">
-                                <button id="fm-info-btn" class="lof-btn lof-btn--secondary lof-btn--small">
-                                    📻 FM <span id="fm-frequency">107.7</span>
-                                </button>
-                                <button id="stream-btn" class="lof-btn lof-btn--secondary lof-btn--small">
-                                    🌐 Audio Stream
-                                </button>
-                            </div>
-                        </div>
-                        
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Queue -->
-            <div id="lof-queue-section" class="lof-section lof-section--queue" style="display: none;">
-                <div class="lof-card lof-card--queue">
-                    <h3 class="lof-card-title" id="lof-queue-title">Request Queue</h3>
-                    <div id="lof-queue-list" class="lof-queue-list">
-                        <!-- Queue items render here -->
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Surprise Me -->
-            <div id="lof-surprise-section" class="lof-section lof-section--surprise">
-                <button 
-                    id="surprise-me-btn" 
-                    data-lof="surprise-me"
-                    class="lof-btn lof-btn--accent lof-btn--large lof-btn--surprise">
-                    🎁 Surprise Me!
-                </button>
-            </div>
-            
-            <!-- Song Grid -->
-            <div id="lof-grid-section" class="lof-section lof-section--grid">
-                <h2 class="lof-section-title">Pick a song</h2>
-                <div id="lof-song-grid" class="lof-song-grid">
-                    <!-- Song tiles render here -->
-                    <div class="lof-skeleton lof-skeleton--tile"></div>
-                    <div class="lof-skeleton lof-skeleton--tile"></div>
-                    <div class="lof-skeleton lof-skeleton--tile"></div>
-                </div>
-            </div>
-            
-        </div>
+        </section>
+
+        <!-- SONG GRID -->
+        <section class="lof-grid-section">
+            <h2 class="lof-section-title">Pick a song</h2>
+            <div class="lof-grid" data-lof="song-grid"></div>
+        </section>
+
+        <!-- QUEUE -->
+        <section class="lof-queue-section" data-lof="queue" style="display:none;">
+            <h3 class="lof-section-subtitle">In the queue</h3>
+            <ul class="lof-queue-list" data-lof="queue-list"></ul>
+        </section>
+
+        <!-- MESSAGES -->
+        <div class="lof-messages" data-lof="messages"></div>
         
-        <!-- Stream Player (Mini) -->
-        <div id="stream-mini-player" class="lof-stream-player" style="display: none;">
+        <!-- STREAM PLAYER -->
+        <div class="lof-stream-player" data-lof="stream-player" style="display:none;">
             <div class="lof-stream-header">
-                <span class="lof-stream-title">🌐 Audio Stream</span>
+                <span class="lof-stream-title">🎵 Audio Stream</span>
                 <div class="lof-stream-controls">
-                    <button id="stream-minimize-btn" class="lof-btn-icon" aria-label="Minimize">−</button>
-                    <button id="stream-close-btn" class="lof-btn-icon" aria-label="Close">×</button>
+                    <button class="lof-stream-btn" data-lof="stream-minimize-btn">−</button>
+                    <button class="lof-stream-btn" data-lof="stream-close-btn">×</button>
                 </div>
             </div>
             <div class="lof-stream-content">
-                <div id="stream-placeholder" class="lof-stream-placeholder">
-                    <p>Press play to start streaming</p>
-                    <button id="stream-start-btn" class="lof-btn lof-btn--primary">▶ Start Audio</button>
+                <div class="lof-stream-placeholder" data-lof="stream-placeholder">
+                    <p>Ready to start the perfectly synced audio?</p>
+                    <button class="lof-button lof-button--primary" data-lof="stream-start-btn">▶ Start Audio</button>
                 </div>
-                <div id="stream-iframe-wrapper" class="lof-stream-iframe-wrapper" style="display: none;">
-                    <!-- Iframe loads here -->
-                </div>
+                <div class="lof-stream-iframe-container" data-lof="stream-iframe-container" style="display:none;"></div>
             </div>
         </div>
-        
     </div>
     <?php
     return ob_get_clean();
 }
-
-// Admin notice if no config
-add_action('admin_notices', 'lof_viewer_v2_admin_notice');
-
-function lof_viewer_v2_admin_notice() {
-    $rf_base = get_option('lof_viewer_rf_api_base', '');
-    $rf_token = get_option('lof_viewer_rf_bearer_token', '');
-    
-    if (empty($rf_base) || empty($rf_token)) {
-        ?>
-        <div class="notice notice-warning">
-            <p>
-                <strong>LOF Viewer V2:</strong> 
-                Remote Falcon API not configured. 
-                Please set <code>lof_viewer_rf_api_base</code> and <code>lof_viewer_rf_bearer_token</code> options.
-            </p>
-        </div>
-        <?php
-    }
-}
+add_shortcode( 'lof_viewer_v2', 'lof_viewer2_shortcode' );

@@ -1,3 +1,4 @@
+// assets/js/lof-theme-layer.js
 (function (window) {
   'use strict';
 
@@ -86,194 +87,98 @@
       return base;
     },
 
-    mapSpeakerFlags(state) {
-      const now = Date.now();
-      const speakerOn = state.speaker.enabled;
-      const remaining = state.speaker.remainingSeconds;
-      const inProtection = state.speaker.gracefulShutoff;
-      const currentHour = new Date().getHours();
-      
-      // Calculate session duration (cumulative time)
-      const sessionDuration = speakerOn ? (now - state.speaker.sessionStartedAt) / 1000 : 0;
-      const sessionCapped = sessionDuration >= 900; // 15 minutes
-
-      let displayMode = 'off';
-      let buttonEnabled = false;
-      let buttonLabel = '🔊 Turn On Speakers';
-      let statusText = '🎵 Show is live right now!';
-      let helperText = 'Turn on outdoor speakers if you\'re near the show';
-      let showCountdown = false;
-      let countdownValue = 0;
-
-      // === SPEAKER OFF STATES ===
-      if (!speakerOn) {
-        
-        // Check external blockers
-        if (state.speaker.config.noiseCurfewEnabled && 
-            !state.speaker.config.noiseCurfewOverride &&
-            currentHour >= state.speaker.config.noiseCurfewHour) {
-          
-          displayMode = 'curfew';
-          buttonEnabled = false;
-          buttonLabel = '🌙 Speakers Off (Late Night)';
-          statusText = 'Outdoor speakers quiet after 10 PM';
-          helperText = 'Listen via 📻 FM ' + state.speaker.config.fmFrequency + ' or 🌐 Audio Stream';
-          
-        } else if (state.speaker.proximityTier >= 4 && !state.speaker.proximityConfirmed) {
-          
-          displayMode = 'geo_blocked';
-          buttonEnabled = false;
-          buttonLabel = '🔊 On-Site Speakers Only';
-          statusText = 'Outdoor speakers available to guests at the show';
-          helperText = 'Watching from afar? Enjoy via 📻 FM ' + state.speaker.config.fmFrequency + ' or 🌐 Audio Stream';
-          
-        } else if (!state.fppData || state.fppData.status === 'unreachable') {
-          
-          displayMode = 'fpp_offline';
-          buttonEnabled = false;
-          buttonLabel = '⏸️ Show Paused';
-          statusText = 'The show will resume shortly';
-          helperText = 'Check back in a few minutes';
-          
-        } else {
-          // Ready to enable
-          displayMode = 'off';
-          buttonEnabled = true;
-          buttonLabel = '🔊 Turn On Speakers';
-          statusText = '🎵 Show is live right now!';
-          helperText = 'Turn on outdoor speakers if you\'re near the show';
-        }
-        
-      } 
-      // === SPEAKER ON STATES ===
-      else {
-        
-        // In protection mode (song finishing)
-        if (inProtection) {
-          displayMode = 'protection';
-          buttonEnabled = false;
-          buttonLabel = '🔊 Speakers On';
-          statusText = '🎵 Current song will finish';
-          helperText = 'This song will finish, then you can start a new turn';
-          showCountdown = true;
-          countdownValue = state.fppData?.secondsRemaining || 0;
-          
-        }
-        // Extension window (0:01-0:30 remaining, under session cap)
-        else if (remaining > 0 && remaining <= 30 && !sessionCapped) {
-          displayMode = 'extension';
-          buttonEnabled = true;
-          buttonLabel = '🎵 Still here? +5 min';
-          statusText = '🎵 Enjoying the show';
-          helperText = 'Tap to keep the audio going';
-          showCountdown = true;
-          countdownValue = remaining;
-          
-        }
-        // Active, waiting for extension window
-        else if (remaining > 30) {
-          displayMode = 'active';
-          buttonEnabled = false;
-          buttonLabel = '🔊 Speakers On';
-          statusText = '🎵 Enjoying the show';
-          helperText = 'You can extend in a bit';
-          showCountdown = true;
-          countdownValue = remaining;
-          
-        }
-        // Timer at 0 or session capped (caps are invisible to user)
-        else {
-          displayMode = 'active';
-          buttonEnabled = false;
-          buttonLabel = '🔊 Speakers On';
-          statusText = '🎵 Enjoying the show';
-          helperText = '';
-          showCountdown = remaining > 0;
-          countdownValue = remaining;
-        }
-      }
-
-      return {
-        displayMode,
-        buttonEnabled,
-        buttonLabel,
-        statusText,
-        helperText,
-        showCountdown,
-        countdownValue,
-        countdownClass: this._getCountdownClass(countdownValue),
-        buttonClass: this._getButtonClass(displayMode, buttonEnabled),
-        statusIconClass: this._getStatusIconClass(displayMode),
-        showAlternatives: true,
-        emphasizeAlternatives: displayMode === 'curfew' || displayMode === 'geo_blocked' || displayMode === 'fpp_offline',
-        showProximityHint: false,
-        proximityTier: state.speaker.proximityTier,
-      };
-    },
-
-    _getButtonClass(mode, enabled) {
-      const baseClass = 'lof-btn';
-      
-      if (!enabled) {
-        return `${baseClass} lof-btn--disabled lof-btn--${mode}`;
-      }
-      
-      if (mode === 'extension') {
-        return `${baseClass} lof-btn--primary lof-btn--extension lof-btn--pulse`;
-      }
-      
-      return `${baseClass} lof-btn--primary lof-btn--${mode}`;
-    },
-
-    _getStatusIconClass(mode) {
-      const iconMap = {
-        'off': 'icon-speaker-off',
-        'active': 'icon-speaker-on',
-        'extension': 'icon-speaker-on icon-pulse',
-        'protection': 'icon-speaker-on',
-        'curfew': 'icon-moon',
-        'geo_blocked': 'icon-location',
-        'fpp_offline': 'icon-alert',
-      };
-      return iconMap[mode] || 'icon-speaker-off';
-    },
-
-    _formatCountdown(seconds) {
-      if (seconds <= 0) {
-        return '0:00';
-      }
-
-      const mins = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
-    },
-
-    _getCountdownClass(seconds) {
-      if (seconds <= 30) {
-        return 'lof-countdown--warning';
-      } else if (seconds <= 60) {
-        return 'lof-countdown--caution';
-      } else {
-        return 'lof-countdown--normal';
-      }
-    },
-
-    mapStateToFlags(state) {
-      const speakerFlags = this.mapSpeakerFlags(state);
-
-      return {
-        speaker: speakerFlags,
-        themeMode: state.themeMode || this._currentTheme,
-      };
-    },
-
     updateCSSVariables() {
       const theme = this._themes[this._currentTheme] || this._themes.default;
       const root = document.documentElement;
       Object.entries(theme.colors).forEach(([key, value]) => {
         root.style.setProperty(`--lof-${key}`, value);
       });
+    },
+
+    // ========================================
+    // SPEAKER FLAGS MAPPING
+    // ========================================
+
+    /**
+     * Map speaker state to UI flags (NO COPY TEXT)
+     * Returns flags that ContentLayer and ViewLayer use
+     */
+    mapSpeakerFlags(speakerState, fppData) {
+      const now = Date.now();
+      const currentHour = new Date(now).getHours();
+
+      const flags = {
+        displayMode: 'off',
+        buttonEnabled: false,
+        showCountdown: false,
+        countdownValue: 0,
+        showExtendButton: false,
+        showProximityButton: false,
+        emphasizeAlternatives: false,
+        proximityTier: speakerState.proximityTier || 1,
+      };
+
+      // Check curfew
+      const curfewActive =
+        speakerState.config?.noiseCurfewEnabled &&
+        currentHour >= (speakerState.config?.noiseCurfewHour || 22);
+
+      // Check FPP
+      const fppPlaying = speakerState.fppPlaying || false;
+
+      // Determine display mode
+      if (!speakerState.enabled) {
+        // Speaker is OFF
+        if (curfewActive) {
+          flags.displayMode = 'curfew';
+          flags.buttonEnabled = false;
+          flags.emphasizeAlternatives = true;
+        } else if (speakerState.proximityTier >= 4) {
+          flags.displayMode = 'geo_blocked';
+          flags.buttonEnabled = false;
+          flags.emphasizeAlternatives = true;
+        } else if (!fppPlaying) {
+          flags.displayMode = 'fpp_offline';
+          flags.buttonEnabled = false;
+          flags.emphasizeAlternatives = false;
+        } else {
+          flags.displayMode = 'off';
+          flags.buttonEnabled = true;
+          flags.emphasizeAlternatives = false;
+        }
+      } else {
+        // Speaker is ON
+        if (speakerState.gracefulShutoff) {
+          // Protection mode
+          flags.displayMode = 'protection';
+          flags.buttonEnabled = false;
+          flags.showCountdown = true;
+          flags.countdownValue = speakerState.remainingSeconds || 0;
+          flags.emphasizeAlternatives = false;
+        } else if (speakerState.remainingSeconds <= 30 && speakerState.remainingSeconds > 0) {
+          // Extension window
+          flags.displayMode = 'extension';
+          flags.buttonEnabled = false;
+          flags.showCountdown = true;
+          flags.countdownValue = speakerState.remainingSeconds;
+          flags.showExtendButton = !speakerState.maxSessionReached;
+          flags.emphasizeAlternatives = false;
+        } else {
+          // Active
+          flags.displayMode = 'active';
+          flags.buttonEnabled = false;
+          flags.showCountdown = true;
+          flags.countdownValue = speakerState.remainingSeconds;
+          flags.emphasizeAlternatives = false;
+        }
+      }
+
+      // Show proximity button if needed
+      if (speakerState.proximityTier >= 4 && !speakerState.proximityConfirmed) {
+        flags.showProximityButton = true;
+      }
+
+      return flags;
     },
   };
 

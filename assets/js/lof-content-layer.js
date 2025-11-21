@@ -1,3 +1,4 @@
+// assets/js/lof-content-layer.js
 (function (window) {
   'use strict';
 
@@ -62,6 +63,11 @@
           christmas: "Fixing the sleigh's radio...",
           halloween: 'Calling through the veil...',
         },
+        speaker: {
+          default: 'Starting speakers...',
+          christmas: 'Turning up the caroling...',
+          halloween: 'Awakening the sound spirits...',
+        },
       },
 
       success: {
@@ -75,6 +81,16 @@
           christmas: "🎁 Unwrapped: '{title}' at position {position}!",
           halloween: "🎃 Revealed: '{title}' at position {position}!",
         },
+        speaker_enabled: {
+          default: 'Speakers enabled for 5 minutes!',
+          christmas: '🔊 Ho ho ho! Speakers on for 5 minutes!',
+          halloween: '🔊 The speakers awaken for 5 minutes!',
+        },
+        speaker_extended: {
+          default: 'Speaker time extended by 5 minutes!',
+          christmas: '⏰ More caroling time! 5 minutes added!',
+          halloween: '⏰ The sound spirits linger... 5 minutes more!',
+        },
       },
 
       errors: {
@@ -82,6 +98,11 @@
           default: 'Please wait {remainingSeconds} seconds before requesting another song.',
           christmas: 'The elves need a break! Wait {remainingSeconds} seconds.',
           halloween: 'The spirits are tired. Wait {remainingSeconds} seconds.',
+        },
+        SONG_COOLDOWN: {
+          default: 'This song was just requested. Please wait {remainingSeconds} seconds.',
+          christmas: 'That gift was just opened! Wait {remainingSeconds} seconds.',
+          halloween: 'That spell was just cast. Wait {remainingSeconds} seconds.',
         },
         DUPLICATE: {
           default: 'This song is already in the queue.',
@@ -112,11 +133,6 @@
           default: 'Unable to toggle speaker.',
           christmas: "The reindeer aren't listening!",
           halloween: "The speakers won't obey...",
-        },
-        SONG_COOLDOWN: {
-          default: 'This song was recently requested. Wait {remainingSeconds}s.',
-          christmas: 'That song just played! Wait {remainingSeconds}s.',
-          halloween: 'That spirit is resting. Wait {remainingSeconds}s.',
         },
       },
 
@@ -163,68 +179,190 @@
         queueItem: 'Request number {position}: {title} by {requester}',
       },
 
+      // ========================================
+      // SPEAKER COPY (ALL STATES)
+      // ========================================
       speaker: {
-        // Button labels by state
-        buttonLabel: {
-          off: '🔊 Turn On Speakers',
-          active: '🔊 Speakers On',
-          extension: '🎵 Still here? +5 min',
-          protection: '🔊 Speakers On',
-          curfew: '🌙 Speakers Off (Late Night)',
-          geo_blocked: '🔊 On-Site Speakers Only',
-          fpp_offline: '⏸️ Show Paused',
+        title: {
+          default: '🔊 Outdoor Speakers',
+          christmas: '🔊 Hear the Carolers',
+          halloween: '🔊 Hear the Haunting',
         },
 
-        // Status text by state
-        statusText: {
-          off: '🎵 Show is live right now!',
-          active: '🎵 Enjoying the show',
-          extension: '🎵 Enjoying the show',
-          protection: '🎵 Current song will finish',
-          curfew: 'Outdoor speakers quiet after 10 PM',
-          geo_blocked: 'Outdoor speakers available to guests at the show',
-          fpp_offline: 'The show will resume shortly',
-        },
-
-        // Helper text by state
-        helperText: {
-          off: 'Turn on outdoor speakers if you\'re near the show',
-          active: 'You can extend in a bit',
-          extension: 'Tap to keep the audio going',
-          protection: 'This song will finish, then you can start a new turn',
-          curfew: 'Listen via 📻 FM {frequency} or 🌐 Audio Stream',
-          geo_blocked: 'Watching from afar? Enjoy via 📻 FM {frequency} or 🌐 Audio Stream',
-          fpp_offline: 'Check back in a few minutes',
-        },
-
-        // Toast messages
-        toasts: {
-          enableSuccess: {
-            default: '🔊 Speakers on. Enjoy the music!',
-            christmas: '🎄 Speakers on! Let the festive music fill the air.',
-            halloween: '🎃 Speakers summoned! The show is louder now.',
+        // Display mode: OFF (ready to enable)
+        off: {
+          statusText: {
+            default: 'Want to hear the music outside?',
+            christmas: 'Want to hear the carols outside?',
+            halloween: 'Want to hear the haunting music?',
           },
-          extendSuccess: {
-            default: '⏱️ Speakers extended! Enjoy 5 more minutes.',
-            christmas: '🎅 More holiday magic! Extended for 5 minutes.',
-            halloween: '👻 More spooky sounds! Extended for 5 minutes.',
+          buttonLabel: {
+            default: 'Turn On Speakers',
+            christmas: 'Start the Caroling',
+            halloween: 'Awaken the Speakers',
           },
-          proximityConfirmed: {
-            default: '✓ Location confirmed. You can now control speakers!',
-            christmas: '🎄 Welcome to the show! Speaker control enabled.',
-            halloween: '👻 Welcome, guest! Speaker control enabled.',
+          helperText: {
+            default: 'Speakers will play for 5 minutes. You can extend anytime.',
+            christmas: '5 minutes of holiday cheer! Can extend anytime.',
+            halloween: '5 minutes of spooky sounds. Extend if you dare...',
           },
-          alreadyOn: 'Speakers are already rockin\'!',
-          physicalButtonDetected: '🔊 Speakers turned on by show attendee',
-          turningOff: '⏸️ Speakers turning off',
         },
 
-        // Alternatives (FM/Stream)
-        alternatives: {
-          fmLabel: '📻 FM {frequency}',
-          streamLabel: '🌐 Audio Stream',
-          fmHint: 'Listen in your car',
-          streamHint: 'Perfectly synced audio',
+        // Display mode: CURFEW (blocked by time)
+        curfew: {
+          statusText: {
+            default: 'Speakers are off for the evening.',
+            christmas: 'Shh... the neighbors are sleeping! 🌙',
+            halloween: 'The night grows too quiet for speakers...',
+          },
+          buttonLabel: {
+            default: 'Speakers Unavailable',
+            christmas: 'Silent Night 🔇',
+            halloween: 'Silence Reigns 🔇',
+          },
+          helperText: {
+            default: 'Outdoor speakers turn off at curfew time. Try FM or stream!',
+            christmas: "Santa's being quiet tonight. Try FM or stream!",
+            halloween: 'The speakers rest. Try FM or stream instead.',
+          },
+        },
+
+        // Display mode: GEO_BLOCKED (proximity gated)
+        geo_blocked: {
+          statusText: {
+            default: 'Speakers are for visitors at the show.',
+            christmas: 'Speakers are just for visitors at the North Pole!',
+            halloween: 'Speakers are only for those who dare approach...',
+          },
+          buttonLabel: {
+            default: 'Not Available Here',
+            christmas: 'Too Far from the Pole',
+            halloween: 'Beyond the Veil',
+          },
+          helperText: {
+            default: 'Listen via FM or audio stream instead!',
+            christmas: 'Tune in via FM or stream from afar!',
+            halloween: 'Hear the sounds via FM or stream...',
+          },
+        },
+
+        // Display mode: FPP_OFFLINE (show not playing)
+        fpp_offline: {
+          statusText: {
+            default: 'Speakers available when the show is running.',
+            christmas: 'Speakers will turn on when the show starts!',
+            halloween: 'Speakers await the show to rise...',
+          },
+          buttonLabel: {
+            default: 'Waiting for Show',
+            christmas: 'Show Not Started',
+            halloween: 'Show Dormant',
+          },
+          helperText: {
+            default: 'Check back when lights are active!',
+            christmas: "Check back when Santa's flying!",
+            halloween: 'Return when the spirits awaken!',
+          },
+        },
+
+        // Display mode: ACTIVE (4:00 - 0:31)
+        active: {
+          statusText: {
+            default: 'Speakers are playing outside!',
+            christmas: 'The carolers are singing! 🎵',
+            halloween: 'The spirits are howling! 🎵',
+          },
+          buttonLabel: {
+            default: 'Speakers On',
+            christmas: 'Caroling Active',
+            halloween: 'Speakers Haunting',
+          },
+          helperText: {
+            default: '{countdown} remaining. You can extend when under 30 seconds.',
+            christmas: '{countdown} of holiday magic left!',
+            halloween: '{countdown} of haunting sounds remain...',
+          },
+          countdownLabel: {
+            default: '{countdown}',
+            christmas: '{countdown}',
+            halloween: '{countdown}',
+          },
+        },
+
+        // Display mode: EXTENSION (0:30 - 0:01)
+        extension: {
+          statusText: {
+            default: 'Winding down... extend now!',
+            christmas: 'The music is fading... extend now!',
+            halloween: 'The sounds are fading... extend if you dare!',
+          },
+          buttonLabel: {
+            default: '+ 5 More Minutes',
+            christmas: '+ 5 More Minutes of Cheer',
+            halloween: '+ 5 More Minutes of Haunting',
+          },
+          helperText: {
+            default: '{countdown} left. Tap to add 5 more minutes!',
+            christmas: '{countdown} left! Keep the carols going!',
+            halloween: '{countdown} left. Extend the haunting!',
+          },
+          countdownLabel: {
+            default: '{countdown}',
+            christmas: '{countdown}',
+            halloween: '{countdown}',
+          },
+        },
+
+        // Display mode: PROTECTION (song finishing)
+        protection: {
+          statusText: {
+            default: 'Letting this song finish...',
+            christmas: 'Finishing this carol gracefully...',
+            halloween: 'Letting this haunting melody end...',
+          },
+          buttonLabel: {
+            default: 'Finishing Song',
+            christmas: 'Ending Gracefully',
+            halloween: 'Song Fading',
+          },
+          helperText: {
+            default: '{countdown} until song ends. Speakers will turn off after.',
+            christmas: '{countdown} left in this carol.',
+            halloween: '{countdown} until the spirits rest.',
+          },
+          countdownLabel: {
+            default: '{countdown}',
+            christmas: '{countdown}',
+            halloween: '{countdown}',
+          },
+        },
+
+        // Proximity confirm button
+        proximityConfirm: {
+          default: '✓ Yes, I'm at the show',
+          christmas: "✓ Yes, I'm at the North Pole!",
+          halloween: "✓ Yes, I'm here in person!",
+        },
+
+        // FM button
+        fmButton: {
+          default: '📻 FM {frequency}',
+          christmas: '📻 Tune to {frequency}',
+          halloween: '📻 FM {frequency}',
+        },
+
+        // Stream button
+        streamButton: {
+          default: '🌐 Audio Stream',
+          christmas: '🌐 Stream the Carols',
+          halloween: '🌐 Stream the Haunting',
+        },
+
+        // Alternatives section title
+        alternativesTitle: {
+          default: 'Listen another way:',
+          christmas: 'Other ways to hear:',
+          halloween: 'Hear the sounds from afar:',
         },
       },
     },
@@ -288,63 +426,68 @@
       return this.getMessage('labels', 'emptyGrid');
     },
 
-    getSpeakerContent(state, flags) {
-      const mode = flags.speaker.displayMode;
-      const frequency = state.speaker.config.fmFrequency;
+    // ========================================
+    // SPEAKER COPY METHODS
+    // ========================================
 
-      // Get base content from state
-      let buttonLabel = flags.speaker.buttonLabel;
-      let statusText = flags.speaker.statusText;
-      let helperText = flags.speaker.helperText;
+    /**
+     * Get speaker card copy based on flags from ThemeLayer
+     * Returns { title, statusText, buttonLabel, helperText, countdownLabel, ... }
+     */
+    getSpeakerCopy(flags) {
+      const mode = flags.displayMode || 'off';
+      const countdown = this._formatCountdown(flags.countdownValue || 0);
 
-      // Apply theme if available
-      const themeMode = this._currentTheme;
+      const title = this.getMessage('speaker.title', this._currentTheme);
 
-      // Replace frequency placeholders
-      helperText = helperText.replace('{frequency}', frequency);
+      const statusText = this.getMessage(`speaker.${mode}.statusText`, this._currentTheme, {
+        countdown,
+      });
 
-      // Format countdown if shown
-      let countdownLabel = null;
-      if (flags.speaker.showCountdown && flags.speaker.countdownValue > 0) {
-        const formatted = this._formatCountdown(flags.speaker.countdownValue);
-        countdownLabel = `${formatted} remaining`;
+      const buttonLabel = this.getMessage(`speaker.${mode}.buttonLabel`, this._currentTheme, {
+        countdown,
+      });
+
+      const helperText = this.getMessage(`speaker.${mode}.helperText`, this._currentTheme, {
+        countdown,
+      });
+
+      let countdownLabel = '';
+      if (flags.showCountdown) {
+        countdownLabel = this.getMessage(`speaker.${mode}.countdownLabel`, this._currentTheme, {
+          countdown,
+        });
       }
 
+      const proximityConfirmLabel = this.getMessage(
+        'speaker.proximityConfirm',
+        this._currentTheme
+      );
+
+      const fmButtonLabel = this.getMessage('speaker.fmButton', this._currentTheme, {
+        frequency: flags.fmFrequency || '107.7',
+      });
+
+      const streamButtonLabel = this.getMessage('speaker.streamButton', this._currentTheme);
+
+      const alternativesTitle = this.getMessage('speaker.alternativesTitle', this._currentTheme);
+
       return {
-        buttonLabel,
+        title,
         statusText,
+        buttonLabel,
         helperText,
         countdownLabel,
-        alternatives: {
-          fmLabel: `📻 FM ${frequency}`,
-          streamLabel: '🌐 Audio Stream',
-          fmHint: 'Listen in your car',
-          streamHint: 'Perfectly synced audio',
-        },
-        toasts: this._getSpeakerToasts(themeMode),
-      };
-    },
-
-    _getSpeakerToasts(themeMode) {
-      const toasts = this._content.speaker.toasts;
-      return {
-        enableSuccess: toasts.enableSuccess[themeMode] || toasts.enableSuccess.default,
-        extendSuccess: toasts.extendSuccess[themeMode] || toasts.extendSuccess.default,
-        proximityConfirmed: toasts.proximityConfirmed[themeMode] || toasts.proximityConfirmed.default,
-        alreadyOn: toasts.alreadyOn,
-        physicalButtonDetected: toasts.physicalButtonDetected,
-        turningOff: toasts.turningOff,
+        proximityConfirmLabel,
+        fmButtonLabel,
+        streamButtonLabel,
+        alternativesTitle,
       };
     },
 
     _formatCountdown(seconds) {
-      if (seconds <= 0) {
-        return '0:00';
-      }
-
       const mins = Math.floor(seconds / 60);
       const secs = seconds % 60;
-
       return `${mins}:${secs.toString().padStart(2, '0')}`;
     },
   };

@@ -1,6 +1,10 @@
+// assets/js/lof-api-layer.js
 (function (window) {
   'use strict';
 
+  // ------------------------------
+  // RFClient — talks to WP REST proxy (JWT lives in PHP)
+  // ------------------------------
   const RFClient = {
     _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
 
@@ -12,27 +16,41 @@
       const url = `${this._baseURL}/show`;
 
       try {
+        console.debug('[RFClient] fetching showDetails from', url);
+
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { Accept: 'application/json' },
         });
+
+        console.debug('[RFClient] HTTP status', res.status);
 
         if (!res.ok) {
           return this._error('HTTP_ERROR', `RF proxy returned ${res.status}`);
         }
 
-        const json = await res.json().catch(() => null);
+        const json = await res.json().catch((err) => {
+          console.error('[RFClient] JSON parse error', err);
+          return null;
+        });
+
+        console.debug('[RFClient] raw JSON', json);
 
         if (!json || json.success === false) {
-          const msg = json?.message || 'Remote Falcon returned an error';
+          const msg =
+            json && json.message
+              ? json.message
+              : 'Remote Falcon returned an error via LOF adapter';
           return this._error('RF_ADAPTER_ERROR', msg);
         }
 
         const raw = json.data ?? json;
         const normalized = this._normalizeShowDetails(raw);
+        console.debug('[RFClient] normalized showDetails', normalized);
 
         return normalized;
       } catch (err) {
+        console.error('[RFClient] getShowDetails failed', err);
         return this._error('NETWORK_ERROR', err.message || String(err));
       }
     },
@@ -43,46 +61,31 @@
       }
 
       const url = `${this._baseURL}/request`;
+
       const payload = { song_id: songId };
       if (visitorId) {
         payload.visitor_id = visitorId;
       }
 
       try {
+        console.debug('[RFClient] sending requestSong to', url, payload);
+
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        const json = await res.json().catch(() => null);
-        return this._normalizeRequestResponse(json);
-      } catch (err) {
-        return this._error('NETWORK_ERROR', err.message || String(err));
-      }
-    },
-
-    async voteSong(songId, visitorId) {
-      if (!this._baseURL) {
-        return this._error('CONFIG_ERROR', 'RF proxy URL not configured');
-      }
-
-      const url = `${this._baseURL}/vote`;
-      const payload = { song_id: songId };
-      if (visitorId) {
-        payload.visitor_id = visitorId;
-      }
-
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify(payload),
+        const json = await res.json().catch((err) => {
+          console.error('[RFClient] requestSong JSON parse error', err);
+          return null;
         });
 
-        const json = await res.json().catch(() => null);
+        console.debug('[RFClient] requestSong raw JSON', json);
+
         return this._normalizeRequestResponse(json);
       } catch (err) {
+        console.error('[RFClient] requestSong failed', err);
         return this._error('NETWORK_ERROR', err.message || String(err));
       }
     },
@@ -111,7 +114,7 @@
       const rawRequests = Array.isArray(raw.requests) ? raw.requests : [];
 
       const queue = rawRequests.map((req, index) => {
-        const seqObj = (req.sequence && typeof req.sequence === 'object') ? req.sequence : {};
+        const seqObj = req.sequence && typeof req.sequence === 'object' ? req.sequence : {};
         const songId = seqObj.name || null;
         const title = seqObj.displayName || seqObj.name || 'Requested song';
         const artist = seqObj.artist || '';
@@ -121,7 +124,7 @@
           title,
           artist,
           requestedBy: req.viewerRequested || req.requesterName || req.visitor_name || 'Guest',
-          position: (typeof req.position === 'number') ? req.position : index + 1,
+          position: typeof req.position === 'number' ? req.position : index + 1,
         };
       });
 
@@ -222,6 +225,9 @@
     },
   };
 
+  // ------------------------------
+  // FPPClient — talks to FPP (via WP proxy)
+  // ------------------------------
   const FPPClient = {
     _baseURL: window.LOF_CONFIG?.fppBaseUrl || '/wp-json/lof-viewer/v1/fpp',
 
@@ -238,6 +244,7 @@
         const raw = await res.json();
         return this._normalizeStatus(raw);
       } catch (err) {
+        console.error('[FPPClient] getStatus failed', err);
         return this._error('NETWORK_ERROR', err.message);
       }
     },
@@ -251,7 +258,6 @@
         data: {
           mode: d.mode_name || d.fppMode || 'idle',
           currentSequence: d.current_sequence || null,
-          currentSongAudio: d.current_song || null,
           secondsElapsed: d.seconds_played || 0,
           secondsRemaining: d.seconds_remaining || 0,
         },
@@ -271,80 +277,133 @@
     },
   };
 
+  // ------------------------------
+  // LOFClient — Lights on Falcon plugin endpoints
+  // ------------------------------
   const LOFClient = {
-    _baseURL: '/wp-json/lof-viewer/v1',
+    _baseURL: window.LOF_CONFIG?.rfProxyBaseUrl || '/wp-json/lof-viewer/v1',
+
+    async logTelemetry(data) {
+      console.debug('[LOFClient] logTelemetry (stubbed):', data);
+      return Promise.resolve({ success: true, timestamp: Date.now() });
+    },
+
+    async getConfig() {
+      console.debug('[LOFClient] getConfig (stubbed)');
+      return Promise.resolve({ success: true, timestamp: Date.now() });
+    },
+
+    // ========================================
+    // SPEAKER API METHODS
+    // ========================================
 
     async getSpeakerStatus() {
+      if (!this._baseURL) {
+        return this._error('CONFIG_ERROR', 'Speaker API URL not configured');
+      }
+
       const url = `${this._baseURL}/speaker`;
 
       try {
-        const response = await fetch(url, {
+        console.debug('[LOFClient] getSpeakerStatus from', url);
+
+        const res = await fetch(url, {
           method: 'GET',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { Accept: 'application/json' },
         });
 
-        const data = await response.json();
+        if (!res.ok) {
+          return this._error('HTTP_ERROR', `Speaker API returned ${res.status}`);
+        }
+
+        const json = await res.json();
+        console.debug('[LOFClient] speaker status:', json);
+
+        if (!json || json.success === false) {
+          return this._error('SPEAKER_API_ERROR', json?.error || 'Speaker API failed');
+        }
 
         return {
-          success: response.ok && data.success,
+          success: true,
           timestamp: Date.now(),
-          data: data.data || null,
-          error: data.error || null,
-          errorCode: data.errorCode || null,
+          data: json.data || {},
+          error: null,
+          errorCode: null,
         };
       } catch (err) {
-        return {
-          success: false,
-          timestamp: Date.now(),
-          data: null,
-          error: err.message || 'Network error',
-          errorCode: 'NETWORK_ERROR',
-        };
+        console.error('[LOFClient] getSpeakerStatus failed', err);
+        return this._error('NETWORK_ERROR', err.message || String(err));
       }
     },
 
     async enableSpeaker(isExtension = false, proximityConfirmed = false) {
+      if (!this._baseURL) {
+        return this._error('CONFIG_ERROR', 'Speaker API URL not configured');
+      }
+
       const url = `${this._baseURL}/speaker`;
 
+      const payload = {
+        source: 'viewer',
+        extension: isExtension,
+        proximity_confirmed: proximityConfirmed,
+      };
+
       try {
-        const response = await fetch(url, {
+        console.debug('[LOFClient] enableSpeaker:', payload);
+
+        const res = await fetch(url, {
           method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: 'viewer',
-            extension: isExtension,
-            proximity_confirmed: proximityConfirmed,
-          }),
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
         });
 
-        const data = await response.json();
+        const json = await res.json();
+        console.debug('[LOFClient] speaker enable response:', json);
+
+        if (!res.ok || !json.success) {
+          return {
+            success: false,
+            timestamp: Date.now(),
+            data: json.data || null,
+            error: json.error || 'Speaker enable failed',
+            errorCode: json.errorCode || 'SPEAKER_ENABLE_FAILED',
+          };
+        }
 
         return {
-          success: response.ok && data.success,
+          success: true,
           timestamp: Date.now(),
-          data: data.data || null,
-          error: data.error || null,
-          errorCode: data.errorCode || null,
+          data: json.data || {},
+          error: null,
+          errorCode: null,
         };
       } catch (err) {
-        return {
-          success: false,
-          timestamp: Date.now(),
-          data: null,
-          error: err.message || 'Network error',
-          errorCode: 'NETWORK_ERROR',
-        };
+        console.error('[LOFClient] enableSpeaker failed', err);
+        return this._error('NETWORK_ERROR', err.message || String(err));
       }
     },
 
-    async logTelemetry(data) {
-      return Promise.resolve({ success: true, timestamp: Date.now() });
+    _error(code, message) {
+      return {
+        success: false,
+        timestamp: Date.now(),
+        data: null,
+        error: message,
+        errorCode: code,
+      };
     },
   };
 
-  window.LOF_API = { RFClient, FPPClient, LOFClient };
+  // ------------------------------
+  // Export into global namespace
+  // ------------------------------
+  window.LOF_API = {
+    RFClient,
+    FPPClient,
+    LOFClient,
+  };
+
   window.RFClient = RFClient;
   window.FPPClient = FPPClient;
   window.LOFClient = LOFClient;

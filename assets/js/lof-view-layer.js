@@ -1,397 +1,351 @@
+// assets/js/lof-view-layer.js
 (function (window) {
   'use strict';
 
   const ViewLayer = {
-    _elements: {},
-    _lastRenderedState: null,
-
-    init() {
-      this._cacheElements();
-    },
-
-    _cacheElements() {
-      this._elements = {
-        statusBar: document.getElementById('lof-status-bar'),
-        statusText: document.getElementById('lof-status-text'),
-        statusIndicator: document.getElementById('lof-status-indicator'),
-        
-        nowPlayingCard: document.getElementById('lof-now-playing-card'),
-        nowPlayingContent: document.getElementById('lof-now-playing-content'),
-        
-        upNextCard: document.getElementById('lof-up-next-card'),
-        upNextContent: document.getElementById('lof-up-next-content'),
-        
-        speakerSection: document.getElementById('lof-speaker-section'),
-        speakerStatus: document.getElementById('lof-speaker-status-text'),
-        speakerCountdownWrapper: document.getElementById('lof-speaker-countdown-wrapper'),
-        speakerCountdownValue: document.getElementById('lof-speaker-countdown-value'),
-        speakerPrimaryBtn: document.getElementById('speaker-primary-btn'),
-        speakerHelper: document.getElementById('lof-speaker-helper'),
-        speakerAlternatives: document.getElementById('lof-speaker-alternatives'),
-        fmFrequency: document.getElementById('fm-frequency'),
-        
-        queueSection: document.getElementById('lof-queue-section'),
-        queueTitle: document.getElementById('lof-queue-title'),
-        queueList: document.getElementById('lof-queue-list'),
-        
-        surpriseSection: document.getElementById('lof-surprise-section'),
-        surpriseBtn: document.getElementById('surprise-me-btn'),
-        
-        gridSection: document.getElementById('lof-grid-section'),
-        songGrid: document.getElementById('lof-song-grid'),
-        
-        toastContainer: document.getElementById('lof-toast-container'),
-        
-        streamPlayer: document.getElementById('stream-mini-player'),
-        streamPlaceholder: document.getElementById('stream-placeholder'),
-        streamIframeWrapper: document.getElementById('stream-iframe-wrapper'),
-      };
-    },
-
     render(state, derived) {
-      if (!state || !derived) return;
+      const enhancedDerived = { ...derived, state: state.currentState };
 
-      this._lastRenderedState = state;
-
-      this.renderStatus(state, derived);
-      this.renderNowPlaying(state);
-      this.renderUpNext(state);
-      this.renderSpeaker(state);
-      this.renderQueue(state, derived);
-      this.renderSurpriseMe(state, derived);
-      this.renderSongGrid(state, derived);
+      this.renderStatusPanel(state, enhancedDerived);
+      this.renderNowNext(state.rfData?.nowPlaying, state.rfData?.upNext);
+      this.renderSongGrid(state.rfData?.availableSongs || []);
+      this.renderQueue(state.rfData?.queue || []);
+      this.renderSpeakerCard(state.speaker, state.fppData);
     },
 
-    renderStatus(state, derived) {
-      if (!this._elements.statusText) return;
+    renderStatusPanel(state, derived) {
+      const panel = document.querySelector('[data-lof="status-panel"]');
+      if (!panel) return;
+
+      const indicator = panel.querySelector('[data-lof="state-indicator"]');
+      const textEl = panel.querySelector('[data-lof="status-text"]');
+      const warningEl = panel.querySelector('[data-lof="connection-warning"]');
+
+      if (!indicator || !textEl || !warningEl) return;
 
       const statusCopy = ContentLayer.getStatusCopy(derived);
-      this._elements.statusText.textContent = statusCopy.text;
-      
-      if (this._elements.statusIndicator) {
-        this._elements.statusIndicator.className = 'lof-status-indicator ' + statusCopy.indicatorClass;
-      }
+      textEl.textContent = statusCopy.text;
+
+      indicator.className = `lof-state-indicator ${statusCopy.indicatorClass}`;
+      warningEl.style.display = statusCopy.warning ? '' : 'none';
+      warningEl.textContent = statusCopy.warning || '';
     },
 
-    renderNowPlaying(state) {
-      if (!this._elements.nowPlayingContent) return;
+    renderNowNext(nowPlaying, upNext) {
+      const nowTitleEl = document.querySelector('[data-lof="now-title"]');
+      const nowArtistEl = document.querySelector('[data-lof="now-artist"]');
+      const nextTitleEl = document.querySelector('[data-lof="next-title"]');
+      const nextArtistEl = document.querySelector('[data-lof="next-artist"]');
 
-      const nowPlaying = state.rfData?.nowPlaying;
+      if (nowTitleEl) nowTitleEl.textContent = nowPlaying?.title || 'Intermission';
+      if (nowArtistEl) nowArtistEl.textContent = nowPlaying?.artist || '';
 
-      if (!nowPlaying || !nowPlaying.title) {
-        this._elements.nowPlayingContent.innerHTML = '<p class="lof-text-muted">No song playing</p>';
+      if (nextTitleEl) nextTitleEl.textContent = upNext?.title || ContentLayer.getNoNextTrackLabel();
+      if (nextArtistEl) nextArtistEl.textContent = upNext?.artist || '';
+    },
+
+    renderSongGrid(songs) {
+      const grid = document.querySelector('[data-lof="song-grid"]');
+      if (!grid) return;
+
+      grid.innerHTML = '';
+
+      if (!songs || songs.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'lof-empty-grid';
+        emptyMsg.textContent = ContentLayer.getEmptyGridMessage();
+        grid.appendChild(emptyMsg);
         return;
       }
 
-      this._elements.nowPlayingContent.innerHTML = `
-        <div class="lof-now-playing-info">
-          <div class="lof-now-playing-title">${this._escapeHtml(nowPlaying.title)}</div>
-          ${nowPlaying.artist ? `<div class="lof-now-playing-artist">${this._escapeHtml(nowPlaying.artist)}</div>` : ''}
-        </div>
-      `;
+      songs.forEach((song) => {
+        const tile = document.createElement('button');
+        tile.className = 'lof-tile';
+        tile.dataset.lofSongId = song.songId;
+
+        if (!song.isAvailable) {
+          tile.disabled = true;
+          tile.classList.add('lof-tile--disabled');
+        }
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'lof-tile__title';
+        titleEl.textContent = song.title;
+
+        const artistEl = document.createElement('div');
+        artistEl.className = 'lof-tile__artist';
+        artistEl.textContent = song.artist || '';
+
+        tile.appendChild(titleEl);
+        tile.appendChild(artistEl);
+
+        tile.setAttribute(
+          'aria-label',
+          ContentLayer.getTileAriaLabel(song.title, song.artist, !tile.disabled)
+        );
+
+        grid.appendChild(tile);
+      });
     },
 
-    renderUpNext(state) {
-      if (!this._elements.upNextContent) return;
+    renderQueue(queue) {
+      const container = document.querySelector('[data-lof="queue"]');
+      const listEl = container?.querySelector('[data-lof="queue-list"]');
 
-      const upNext = state.rfData?.upNext;
+      if (!container || !listEl) return;
 
-      if (!upNext || !upNext.title) {
-        const placeholder = ContentLayer.getNoNextTrackLabel();
-        this._elements.upNextContent.innerHTML = `<p class="lof-text-muted">${this._escapeHtml(placeholder)}</p>`;
+      if (!queue || queue.length === 0) {
+        container.style.display = 'none';
+        listEl.innerHTML = '';
         return;
       }
 
-      this._elements.upNextContent.innerHTML = `
-        <div class="lof-up-next-info">
-          <div class="lof-up-next-title">${this._escapeHtml(upNext.title)}</div>
-          ${upNext.artist ? `<div class="lof-up-next-artist">${this._escapeHtml(upNext.artist)}</div>` : ''}
-        </div>
-      `;
+      container.style.display = '';
+      listEl.innerHTML = '';
+
+      queue.forEach((entry) => {
+        const li = document.createElement('li');
+        li.className = 'lof-queue-item';
+
+        const positionEl = document.createElement('span');
+        positionEl.className = 'lof-queue-item__position';
+        positionEl.textContent = entry.position + '.';
+
+        const titleEl = document.createElement('span');
+        titleEl.className = 'lof-queue-item__title';
+        titleEl.textContent = entry.title;
+
+        const requestedByEl = document.createElement('span');
+        requestedByEl.className = 'lof-queue-item__requested-by';
+        requestedByEl.textContent = ContentLayer.getRequesterLabel(entry.requestedBy);
+
+        li.appendChild(positionEl);
+        li.appendChild(titleEl);
+        li.appendChild(requestedByEl);
+
+        listEl.appendChild(li);
+      });
     },
 
-    renderSpeaker(state) {
-      if (!this._elements.speakerSection) return;
+    // ========================================
+    // SPEAKER CARD RENDERING
+    // ========================================
 
-      const flags = ThemeLayer.mapSpeakerFlags(state);
-      const content = ContentLayer.getSpeakerContent(state, flags);
+    renderSpeakerCard(speakerState, fppData) {
+      const card = document.querySelector('[data-lof="speaker-card"]');
+      if (!card) return;
 
-      // Update button
-      if (this._elements.speakerPrimaryBtn) {
-        this._elements.speakerPrimaryBtn.textContent = content.buttonLabel;
-        this._elements.speakerPrimaryBtn.disabled = !flags.buttonEnabled;
-        this._elements.speakerPrimaryBtn.className = flags.buttonClass;
-      }
+      // Get flags from ThemeLayer
+      const flags = ThemeLayer.mapSpeakerFlags(speakerState, fppData);
+
+      // Get copy from ContentLayer
+      const copy = ContentLayer.getSpeakerCopy(flags);
+
+      // Show/hide card based on feature flag
+      const shouldShow = window.LOF_CONFIG?.lofInitialConfig?.features?.speakerControlEnabled;
+      card.style.display = shouldShow ? '' : 'none';
+
+      if (!shouldShow) return;
+
+      // Update title
+      const titleEl = card.querySelector('[data-lof="speaker-title"]');
+      if (titleEl) titleEl.textContent = copy.title;
 
       // Update status text
-      if (this._elements.speakerStatus) {
-        this._elements.speakerStatus.textContent = content.statusText;
-      }
+      const statusEl = card.querySelector('[data-lof="speaker-status"]');
+      if (statusEl) statusEl.textContent = copy.statusText;
 
       // Update countdown
-      if (this._elements.speakerCountdownWrapper && this._elements.speakerCountdownValue) {
-        if (flags.showCountdown && flags.countdownValue > 0) {
-          this._elements.speakerCountdownWrapper.style.display = 'block';
-          this._elements.speakerCountdownValue.textContent = this._formatCountdown(flags.countdownValue);
-          this._elements.speakerCountdownWrapper.className = 'lof-speaker-countdown-wrapper ' + flags.countdownClass;
+      const countdownEl = card.querySelector('[data-lof="speaker-countdown"]');
+      const countdownValueEl = card.querySelector('[data-lof="speaker-countdown-value"]');
+      if (countdownEl && countdownValueEl) {
+        countdownEl.style.display = flags.showCountdown ? '' : 'none';
+        if (flags.showCountdown) {
+          countdownValueEl.textContent = copy.countdownLabel;
+        }
+      }
+
+      // Update proximity button
+      const proximityBtn = card.querySelector('[data-lof="speaker-proximity-btn"]');
+      if (proximityBtn) {
+        proximityBtn.style.display = flags.showProximityButton ? '' : 'none';
+        proximityBtn.textContent = copy.proximityConfirmLabel;
+      }
+
+      // Update primary button
+      const primaryBtn = card.querySelector('[data-lof="speaker-primary-btn"]');
+      if (primaryBtn) {
+        primaryBtn.textContent = copy.buttonLabel;
+        primaryBtn.disabled = !flags.buttonEnabled && !flags.showExtendButton;
+
+        // Handle extension button vs regular button
+        if (flags.showExtendButton) {
+          primaryBtn.disabled = false;
+          primaryBtn.dataset.action = 'extend';
         } else {
-          this._elements.speakerCountdownWrapper.style.display = 'none';
+          primaryBtn.dataset.action = flags.buttonEnabled ? 'enable' : 'none';
+        }
+
+        // Update button classes
+        primaryBtn.className = 'lof-button lof-button--speaker';
+        if (flags.displayMode === 'active' || flags.displayMode === 'protection') {
+          primaryBtn.classList.add('lof-button--on');
+        }
+        if (!flags.buttonEnabled && !flags.showExtendButton) {
+          primaryBtn.classList.add('lof-button--disabled');
         }
       }
 
       // Update helper text
-      if (this._elements.speakerHelper) {
-        this._elements.speakerHelper.textContent = content.helperText;
-        this._elements.speakerHelper.style.display = content.helperText ? 'block' : 'none';
+      const helperEl = card.querySelector('[data-lof="speaker-helper"]');
+      if (helperEl) helperEl.textContent = copy.helperText;
+
+      // Update alternatives
+      const alternativesEl = card.querySelector('[data-lof="speaker-alternatives"]');
+      if (alternativesEl) {
+        alternativesEl.style.display = flags.emphasizeAlternatives ? '' : 'none';
+
+        const titleEl = alternativesEl.querySelector('.lof-alternatives-title');
+        if (titleEl) titleEl.textContent = copy.alternativesTitle;
       }
 
-      // Update FM frequency
-      if (this._elements.fmFrequency) {
-        this._elements.fmFrequency.textContent = state.speaker.config.fmFrequency;
+      // Update FM button
+      const fmBtn = card.querySelector('[data-lof="fm-btn"]');
+      const fmFreqEl = card.querySelector('[data-lof="fm-frequency"]');
+      if (fmBtn && fmFreqEl) {
+        fmFreqEl.textContent = speakerState.config?.fmFrequency || '107.7';
       }
 
-      // Show/hide alternatives
-      if (this._elements.speakerAlternatives) {
-        if (flags.emphasizeAlternatives) {
-          this._elements.speakerAlternatives.style.display = 'block';
-          this._elements.speakerAlternatives.classList.add('lof-alternatives--emphasized');
-        } else {
-          this._elements.speakerAlternatives.style.display = 'block';
-          this._elements.speakerAlternatives.classList.remove('lof-alternatives--emphasized');
-        }
-      }
-    },
-
-    renderQueue(state, derived) {
-      if (!this._elements.queueSection || !this._elements.queueList) return;
-
-      const queue = state.rfData?.queue || [];
-
-      if (queue.length === 0 || !derived.shouldShowQueue) {
-        this._elements.queueSection.style.display = 'none';
-        return;
-      }
-
-      this._elements.queueSection.style.display = 'block';
-
-      const queueHtml = queue.map((item, index) => {
-        const requester = ContentLayer.getRequesterLabel(item.requester);
-        return `
-          <div class="lof-queue-item">
-            <div class="lof-queue-position">${index + 1}</div>
-            <div class="lof-queue-info">
-              <div class="lof-queue-title">${this._escapeHtml(item.title)}</div>
-              <div class="lof-queue-requester">Requested by ${this._escapeHtml(requester)}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      this._elements.queueList.innerHTML = queueHtml;
-    },
-
-    renderSurpriseMe(state, derived) {
-      if (!this._elements.surpriseSection || !this._elements.surpriseBtn) return;
-
-      if (derived.shouldShowSurpriseMe) {
-        this._elements.surpriseSection.style.display = 'block';
-        this._elements.surpriseBtn.textContent = ContentLayer.getMessage('labels', 'surpriseMe');
-      } else {
-        this._elements.surpriseSection.style.display = 'none';
+      // Update stream button (always visible)
+      const streamBtn = card.querySelector('[data-lof="stream-btn"]');
+      if (streamBtn) {
+        streamBtn.textContent = copy.streamButtonLabel;
       }
     },
 
-    renderSongGrid(state, derived) {
-      if (!this._elements.songGrid) return;
+    // ========================================
+    // STREAM PLAYER RENDERING
+    // ========================================
 
-      const songs = state.rfData?.availableSongs || [];
+    showStreamPlayer(streamUrl) {
+      const player = document.querySelector('[data-lof="stream-player"]');
+      if (!player) return;
 
-      if (songs.length === 0 || !derived.shouldShowGrid) {
-        this._elements.songGrid.innerHTML = `
-          <div class="lof-empty-message">
-            ${ContentLayer.getEmptyGridMessage()}
-          </div>
-        `;
-        return;
-      }
+      player.style.display = '';
 
-      const tilesHtml = songs.map((song) => {
-        const isAvailable = song.isAvailable !== false;
-        const tileClass = ThemeLayer.getTileClass(isAvailable, false);
-        const ariaLabel = ContentLayer.getTileAriaLabel(song.title, song.artist, isAvailable);
+      const placeholder = player.querySelector('[data-lof="stream-placeholder"]');
+      const iframeContainer = player.querySelector('[data-lof="stream-iframe-container"]');
 
-        return `
-          <button 
-            class="${tileClass}" 
-            data-lof-song-id="${this._escapeHtml(song.songId)}"
-            ${!isAvailable ? 'disabled' : ''}
-            aria-label="${this._escapeHtml(ariaLabel)}">
-            
-            <div class="lof-tile-content">
-              <div class="lof-tile-title">${this._escapeHtml(song.title)}</div>
-              ${song.artist ? `<div class="lof-tile-artist">${this._escapeHtml(song.artist)}</div>` : ''}
-              ${song.category ? `<div class="lof-tile-category ${ThemeLayer.getCategoryClass(song.category)}">${this._escapeHtml(song.category)}</div>` : ''}
-            </div>
-            
-            ${!isAvailable ? '<div class="lof-tile-overlay">Not Available</div>' : ''}
-          </button>
-        `;
-      }).join('');
-
-      this._elements.songGrid.innerHTML = tilesHtml;
-    },
-
-    showSuccess(message) {
-      this._showToast(message, 'success');
-    },
-
-    showError(errorOrMessage) {
-      let message = '';
-      
-      if (typeof errorOrMessage === 'string') {
-        message = errorOrMessage;
-      } else if (errorOrMessage.code) {
-        message = ContentLayer.getErrorMessage(errorOrMessage.code, errorOrMessage.context || {});
-      } else if (errorOrMessage.error) {
-        message = errorOrMessage.error;
-      } else {
-        message = 'Something went wrong';
-      }
-      
-      this._showToast(message, 'error');
-    },
-
-    showInfo(message) {
-      this._showToast(message, 'info');
-    },
-
-    showLoading(message) {
-      this._showToast(message, 'loading', 30000);
-    },
-
-    _showToast(message, type = 'info', duration = 5000) {
-      if (!this._elements.toastContainer) return;
-
-      const toast = document.createElement('div');
-      toast.className = `lof-toast lof-toast--${type}`;
-      toast.textContent = message;
-
-      this._elements.toastContainer.appendChild(toast);
-
-      setTimeout(() => {
-        toast.classList.add('lof-toast--show');
-      }, 10);
-
-      if (type !== 'loading') {
-        setTimeout(() => {
-          toast.classList.remove('lof-toast--show');
-          setTimeout(() => {
-            if (toast.parentNode) {
-              toast.parentNode.removeChild(toast);
-            }
-          }, 300);
-        }, duration);
-      }
-
-      return toast;
-    },
-
-    setButtonLoading(btnId, loading) {
-      const btn = document.getElementById(btnId);
-      if (!btn) return;
-
-      if (loading) {
-        btn.disabled = true;
-        btn.classList.add('lof-btn--loading');
-        btn.setAttribute('data-original-text', btn.textContent);
-        btn.textContent = '...';
-      } else {
-        btn.disabled = false;
-        btn.classList.remove('lof-btn--loading');
-        const original = btn.getAttribute('data-original-text');
-        if (original) {
-          btn.textContent = original;
-          btn.removeAttribute('data-original-text');
-        }
+      if (placeholder) placeholder.style.display = '';
+      if (iframeContainer) {
+        iframeContainer.style.display = 'none';
+        iframeContainer.innerHTML = '';
       }
     },
 
-    updateUI(state) {
-      const derived = StateLayer.getDerivedState();
-      this.render(state, derived);
-    },
+    startStreamPlayback(streamUrl) {
+      const player = document.querySelector('[data-lof="stream-player"]');
+      if (!player) return;
 
-    showStreamPlayer() {
-      if (this._elements.streamPlayer) {
-        this._elements.streamPlayer.style.display = 'block';
+      const placeholder = player.querySelector('[data-lof="stream-placeholder"]');
+      const iframeContainer = player.querySelector('[data-lof="stream-iframe-container"]');
+
+      if (placeholder) placeholder.style.display = 'none';
+      if (iframeContainer) {
+        iframeContainer.style.display = '';
+        iframeContainer.innerHTML = `<iframe src="${this._escapeHtml(
+          streamUrl
+        )}" frameborder="0" allowfullscreen class="lof-stream-iframe"></iframe>`;
       }
     },
 
     hideStreamPlayer() {
-      if (this._elements.streamPlayer) {
-        this._elements.streamPlayer.style.display = 'none';
-      }
-      
-      if (this._elements.streamIframeWrapper) {
-        this._elements.streamIframeWrapper.innerHTML = '';
-        this._elements.streamIframeWrapper.style.display = 'none';
-      }
-      
-      if (this._elements.streamPlaceholder) {
-        this._elements.streamPlaceholder.style.display = 'block';
-      }
-    },
+      const player = document.querySelector('[data-lof="stream-player"]');
+      if (!player) return;
 
-    loadStreamIframe(url) {
-      if (!this._elements.streamIframeWrapper) return;
+      player.style.display = 'none';
 
-      this._elements.streamIframeWrapper.innerHTML = `
-        <iframe 
-          src="${this._escapeHtml(url)}" 
-          class="lof-stream-iframe"
-          frameborder="0"
-          allow="autoplay"
-          allowfullscreen>
-        </iframe>
-      `;
-
-      this._elements.streamIframeWrapper.style.display = 'block';
-      
-      if (this._elements.streamPlaceholder) {
-        this._elements.streamPlaceholder.style.display = 'none';
+      const iframeContainer = player.querySelector('[data-lof="stream-iframe-container"]');
+      if (iframeContainer) {
+        iframeContainer.innerHTML = '';
       }
     },
 
     minimizeStreamPlayer() {
-      if (this._elements.streamPlayer) {
-        this._elements.streamPlayer.classList.add('lof-stream-player--minimized');
-      }
+      const player = document.querySelector('[data-lof="stream-player"]');
+      if (!player) return;
+
+      player.classList.add('lof-stream-player--minimized');
     },
 
-    expandStreamPlayer() {
-      if (this._elements.streamPlayer) {
-        this._elements.streamPlayer.classList.remove('lof-stream-player--minimized');
-      }
+    restoreStreamPlayer() {
+      const player = document.querySelector('[data-lof="stream-player"]');
+      if (!player) return;
+
+      player.classList.remove('lof-stream-player--minimized');
     },
 
-    _formatCountdown(seconds) {
-      if (seconds <= 0) return '0:00';
-      
-      const mins = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    // ========================================
+    // MESSAGE METHODS
+    // ========================================
+
+    showLoading(message) {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="lof-message lof-message--loading" role="status" aria-live="polite">
+          <div class="lof-spinner"></div>
+          <span>${this._escapeHtml(message)}</span>
+        </div>`;
     },
 
-    _escapeHtml(text) {
-      const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;',
-      };
-      return String(text).replace(/[&<>"']/g, (m) => map[m]);
+    showSuccess(message) {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="lof-message lof-message--success" role="status" aria-live="polite">
+          <span>${this._escapeHtml(message)}</span>
+        </div>`;
+
+      setTimeout(() => this.clearMessages(), 5000);
+    },
+
+    showError(errorData) {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (!container) return;
+
+      const message = ContentLayer.getErrorMessage(
+        errorData.code || 'UNKNOWN',
+        errorData.context || {}
+      );
+
+      container.innerHTML = `
+        <div class="lof-message lof-message--error" role="alert" aria-live="assertive">
+          <span>${this._escapeHtml(message)}</span>
+        </div>`;
+
+      setTimeout(() => this.clearMessages(), 8000);
+    },
+
+    showToast(message) {
+      this.showSuccess(message);
+    },
+
+    clearMessages() {
+      const container = document.querySelector('[data-lof="messages"]');
+      if (container) container.innerHTML = '';
+    },
+
+    // ========================================
+    // UTILITY METHODS
+    // ========================================
+
+    _escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
     },
   };
 
