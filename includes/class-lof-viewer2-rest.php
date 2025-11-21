@@ -354,7 +354,10 @@ class LOF_Viewer2_REST {
 
         // Get FPP status
         $fpp_status = self::get_fpp_status_internal();
-        $fpp_playing = $fpp_status['success'] && $fpp_status['data']['mode'] === 'playing';
+        
+        // FPP is "playing" when status_name is "playing"
+        $fpp_playing = $fpp_status['success'] && $fpp_status['data']['status'] === 'playing';
+        
         $current_song = $fpp_status['success'] ? $fpp_status['data']['currentSequence'] : null;
         $current_song_audio = $fpp_status['success'] ? $fpp_status['data']['currentSongAudio'] : null;
         $seconds_remaining = $fpp_status['success'] ? $fpp_status['data']['secondsRemaining'] : 0;
@@ -466,7 +469,8 @@ class LOF_Viewer2_REST {
             );
         }
 
-        if ( $fpp_status['data']['mode'] !== 'playing' ) {
+        // Check if FPP is playing (status_name === "playing")
+        if ( $fpp_status['data']['status'] !== 'playing' ) {
             return rest_ensure_response(
                 array(
                     'success'   => false,
@@ -578,10 +582,12 @@ class LOF_Viewer2_REST {
         return array(
             'success' => true,
             'data'    => array(
-                'mode'              => $data['mode_name'] ?? 'idle',
+                'status'            => $data['status_name'] ?? 'idle',  // "playing", "idle", "paused"
+                'mode'              => $data['mode_name'] ?? 'unknown',  // "bridge", "master", etc
                 'currentSequence'   => $data['current_sequence'] ?? null,
                 'currentSongAudio'  => $data['current_song'] ?? null,
                 'secondsRemaining'  => $data['seconds_remaining'] ?? 0,
+                'secondsElapsed'    => $data['seconds_played'] ?? 0,
             ),
         );
     }

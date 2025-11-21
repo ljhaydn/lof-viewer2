@@ -256,7 +256,8 @@
         success: true,
         timestamp: Date.now(),
         data: {
-          mode: d.mode_name || d.fppMode || 'idle',
+          status: d.status_name || 'idle',  // "playing", "idle", "paused"
+          mode: d.mode_name || d.fppMode || 'unknown',  // "bridge", "master", etc
           currentSequence: d.current_sequence || null,
           secondsElapsed: d.seconds_played || 0,
           secondsRemaining: d.seconds_remaining || 0,
