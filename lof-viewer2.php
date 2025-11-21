@@ -52,7 +52,7 @@ function lof_viewer2_enqueue_assets() {
         'fppBaseUrl'       => untrailingslashit( $fpp_base ),
         'theme'            => $theme,
         'polling'          => array(
-            'intervalMs'        => 15000,
+            'intervalMs'        => 3000,
             'maxBackoffMs'      => 30000,
             'rfDebounceMs'      => 0,
             'fppDebounceMs'     => 0,
