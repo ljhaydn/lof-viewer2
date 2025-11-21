@@ -87,127 +87,142 @@
     },
 
     mapSpeakerFlags(state) {
-      const gating = StateLayer.canUseSpeaker();
-      const canExtend = StateLayer.canExtendSpeaker();
-      const needsConfirmation = StateLayer.needsProximityConfirmation();
+      const now = Date.now();
+      const speakerOn = state.speaker.enabled;
+      const remaining = state.speaker.remainingSeconds;
+      const inProtection = state.speaker.gracefulShutoff;
+      const currentHour = new Date().getHours();
+      
+      // Calculate session duration (cumulative time)
+      const sessionDuration = speakerOn ? (now - state.speaker.sessionStartedAt) / 1000 : 0;
+      const sessionCapped = sessionDuration >= 900; // 15 minutes
 
       let displayMode = 'off';
+      let buttonEnabled = false;
+      let buttonLabel = '🔊 Turn On Speakers';
+      let statusText = '🎵 Show is live right now!';
+      let helperText = 'Turn on outdoor speakers if you\'re near the show';
+      let showCountdown = false;
+      let countdownValue = 0;
 
-      if (gating.code === 'OVERRIDE_LOCKED') {
-        displayMode = 'locked';
-      } else if (gating.code === 'NOISE_CURFEW') {
-        displayMode = 'curfew';
-      } else if (gating.code === 'FPP_UNREACHABLE') {
-        displayMode = 'unavailable';
-      } else if (gating.code === 'NOT_PLAYING') {
-        displayMode = 'waiting';
-      } else if (gating.code === 'LIFETIME_CAP_REACHED') {
-        displayMode = 'capped';
-      } else if (needsConfirmation) {
-        displayMode = 'proximity_confirm';
-      } else if (state.speaker.enabled) {
-        if (state.speaker.maxSessionReached) {
-          displayMode = 'session_ending';
-        } else if (canExtend) {
-          displayMode = 'extension';
+      // === SPEAKER OFF STATES ===
+      if (!speakerOn) {
+        
+        // Check external blockers
+        if (state.speaker.config.noiseCurfewEnabled && 
+            !state.speaker.config.noiseCurfewOverride &&
+            currentHour >= state.speaker.config.noiseCurfewHour) {
+          
+          displayMode = 'curfew';
+          buttonEnabled = false;
+          buttonLabel = '🌙 Speakers Off (Late Night)';
+          statusText = 'Outdoor speakers quiet after 10 PM';
+          helperText = 'Listen via 📻 FM ' + state.speaker.config.fmFrequency + ' or 🌐 Audio Stream';
+          
+        } else if (state.speaker.proximityTier >= 4 && !state.speaker.proximityConfirmed) {
+          
+          displayMode = 'geo_blocked';
+          buttonEnabled = false;
+          buttonLabel = '🔊 On-Site Speakers Only';
+          statusText = 'Outdoor speakers available to guests at the show';
+          helperText = 'Watching from afar? Enjoy via 📻 FM ' + state.speaker.config.fmFrequency + ' or 🌐 Audio Stream';
+          
+        } else if (!state.fppData || state.fppData.status === 'unreachable') {
+          
+          displayMode = 'fpp_offline';
+          buttonEnabled = false;
+          buttonLabel = '⏸️ Show Paused';
+          statusText = 'The show will resume shortly';
+          helperText = 'Check back in a few minutes';
+          
         } else {
-          displayMode = 'active';
+          // Ready to enable
+          displayMode = 'off';
+          buttonEnabled = true;
+          buttonLabel = '🔊 Turn On Speakers';
+          statusText = '🎵 Show is live right now!';
+          helperText = 'Turn on outdoor speakers if you\'re near the show';
         }
-      } else if (gating.allowed) {
-        displayMode = 'off';
+        
+      } 
+      // === SPEAKER ON STATES ===
+      else {
+        
+        // In protection mode (song finishing)
+        if (inProtection) {
+          displayMode = 'protection';
+          buttonEnabled = false;
+          buttonLabel = '🔊 Speakers On';
+          statusText = '🎵 Current song will finish';
+          helperText = 'This song will finish, then you can start a new turn';
+          showCountdown = true;
+          countdownValue = state.fppData?.secondsRemaining || 0;
+          
+        }
+        // Extension window (0:01-0:30 remaining, under session cap)
+        else if (remaining > 0 && remaining <= 30 && !sessionCapped) {
+          displayMode = 'extension';
+          buttonEnabled = true;
+          buttonLabel = '🎵 Still here? +5 min';
+          statusText = '🎵 Enjoying the show';
+          helperText = 'Tap to keep the audio going';
+          showCountdown = true;
+          countdownValue = remaining;
+          
+        }
+        // Active, waiting for extension window
+        else if (remaining > 30) {
+          displayMode = 'active';
+          buttonEnabled = false;
+          buttonLabel = '🔊 Speakers On';
+          statusText = '🎵 Enjoying the show';
+          helperText = 'You can extend in a bit';
+          showCountdown = true;
+          countdownValue = remaining;
+          
+        }
+        // Timer at 0 or session capped (caps are invisible to user)
+        else {
+          displayMode = 'active';
+          buttonEnabled = false;
+          buttonLabel = '🔊 Speakers On';
+          statusText = '🎵 Enjoying the show';
+          helperText = '';
+          showCountdown = remaining > 0;
+          countdownValue = remaining;
+        }
       }
-
-      const showProximityConfirmButton = displayMode === 'proximity_confirm';
-      const showPrimaryButton = !showProximityConfirmButton;
 
       return {
         displayMode,
-        showSpeakerButton: true,
-        showProximityConfirmButton,
-        showPrimaryButton,
-        canClickPrimaryButton: displayMode === 'off' || displayMode === 'extension',
-        canClickExtensionButton: displayMode === 'extension',
-        primaryButtonEnabled: displayMode === 'off' || displayMode === 'extension',
-        isSpeakerOn: state.speaker.enabled,
-        isSpeakerLocked: displayMode === 'locked',
-        isSpeakerUnavailable: displayMode === 'unavailable',
-        isWaitingForShow: displayMode === 'waiting',
-        isNoiseCurfew: displayMode === 'curfew',
-        isExtensionWindow: displayMode === 'extension',
-        isSessionEnding: displayMode === 'session_ending',
-        isLifetimeCapped: displayMode === 'capped',
-        needsProximityConfirmation: needsConfirmation,
-        speakerCardClass: this._getCardClass(displayMode),
-        primaryButtonClass: this._getButtonClass(displayMode, 'primary'),
-        proximityConfirmButtonClass: this._getButtonClass(displayMode, 'proximity_confirm'),
-        extensionButtonClass: this._getButtonClass(displayMode, 'extension'),
+        buttonEnabled,
+        buttonLabel,
+        statusText,
+        helperText,
+        showCountdown,
+        countdownValue,
+        countdownClass: this._getCountdownClass(countdownValue),
+        buttonClass: this._getButtonClass(displayMode, buttonEnabled),
         statusIconClass: this._getStatusIconClass(displayMode),
-        showCountdown: state.speaker.enabled && state.speaker.remainingSeconds > 0,
-        countdownValue: this._formatCountdown(state.speaker.remainingSeconds),
-        countdownClass: this._getCountdownClass(state.speaker.remainingSeconds),
         showAlternatives: true,
-        emphasizeAlternatives: displayMode === 'curfew' || displayMode === 'unavailable' || displayMode === 'waiting' || displayMode === 'locked' || displayMode === 'capped',
-        showProximityHint: displayMode === 'off' || displayMode === 'proximity_confirm',
+        emphasizeAlternatives: displayMode === 'curfew' || displayMode === 'geo_blocked' || displayMode === 'fpp_offline',
+        showProximityHint: false,
         proximityTier: state.speaker.proximityTier,
-        showWeatherNotice: false,
-        showSessionStats: false,
       };
     },
 
-    _getCardClass(mode) {
-      const baseClass = 'lof-speaker-card';
-      const modeClasses = {
-        'off': 'lof-speaker-card--off',
-        'active': 'lof-speaker-card--active',
-        'extension': 'lof-speaker-card--extension',
-        'session_ending': 'lof-speaker-card--session-ending',
-        'locked': 'lof-speaker-card--locked',
-        'curfew': 'lof-speaker-card--curfew',
-        'unavailable': 'lof-speaker-card--unavailable',
-        'waiting': 'lof-speaker-card--waiting',
-        'capped': 'lof-speaker-card--capped',
-        'proximity_confirm': 'lof-speaker-card--proximity-confirm',
-      };
-      return `${baseClass} ${modeClasses[mode] || ''}`;
-    },
-
-    _getButtonClass(mode, buttonType) {
+    _getButtonClass(mode, enabled) {
       const baseClass = 'lof-btn';
-
-      if (buttonType === 'proximity_confirm') {
-        if (mode === 'proximity_confirm') {
-          return `${baseClass} lof-btn--primary lof-btn--proximity-confirm`;
-        }
-        return `${baseClass} lof-btn--hidden`;
+      
+      if (!enabled) {
+        return `${baseClass} lof-btn--disabled lof-btn--${mode}`;
       }
-
-      if (buttonType === 'primary') {
-        if (mode === 'off') {
-          return `${baseClass} lof-btn--primary lof-btn--speaker-enable`;
-        } else if (mode === 'active') {
-          return `${baseClass} lof-btn--disabled lof-btn--speaker-active`;
-        } else if (mode === 'extension') {
-          return `${baseClass} lof-btn--primary lof-btn--speaker-extend lof-btn--pulse`;
-        } else if (mode === 'session_ending') {
-          return `${baseClass} lof-btn--disabled lof-btn--speaker-ending`;
-        } else if (mode === 'locked' || mode === 'curfew' || mode === 'unavailable' || mode === 'waiting' || mode === 'capped') {
-          return `${baseClass} lof-btn--disabled lof-btn--speaker-blocked`;
-        } else if (mode === 'proximity_confirm') {
-          return `${baseClass} lof-btn--hidden`;
-        } else {
-          return `${baseClass} lof-btn--disabled`;
-        }
+      
+      if (mode === 'extension') {
+        return `${baseClass} lof-btn--primary lof-btn--extension lof-btn--pulse`;
       }
-
-      if (buttonType === 'extension') {
-        if (mode === 'extension') {
-          return `${baseClass} lof-btn--primary lof-btn--pulse`;
-        } else {
-          return `${baseClass} lof-btn--hidden`;
-        }
-      }
-
-      return baseClass;
+      
+      return `${baseClass} lof-btn--primary lof-btn--${mode}`;
     },
 
     _getStatusIconClass(mode) {
@@ -215,13 +230,10 @@
         'off': 'icon-speaker-off',
         'active': 'icon-speaker-on',
         'extension': 'icon-speaker-on icon-pulse',
-        'session_ending': 'icon-speaker-on icon-warning',
-        'locked': 'icon-lock',
+        'protection': 'icon-speaker-on',
         'curfew': 'icon-moon',
-        'unavailable': 'icon-alert',
-        'waiting': 'icon-clock',
-        'capped': 'icon-timer-off',
-        'proximity_confirm': 'icon-location',
+        'geo_blocked': 'icon-location',
+        'fpp_offline': 'icon-alert',
       };
       return iconMap[mode] || 'icon-speaker-off';
     },

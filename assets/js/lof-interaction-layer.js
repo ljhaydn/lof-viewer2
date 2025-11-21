@@ -42,12 +42,12 @@
           const state = StateLayer.getState();
           const flags = ThemeLayer.mapStateToFlags(state);
 
-          if (flags.speaker.displayMode === 'extension') {
-            this.handleSpeakerExtend();
-          } else if (flags.speaker.displayMode === 'off') {
-            this.handleSpeakerToggle();
-          } else if (flags.speaker.displayMode === 'capped' || flags.speaker.displayMode === 'session_ending') {
-            this.handleSpeakerToggle();
+          if (flags.speaker.buttonEnabled) {
+            if (flags.speaker.displayMode === 'extension') {
+              this.handleSpeakerExtend();
+            } else {
+              this.handleSpeakerToggle();
+            }
           }
         });
       }
@@ -219,19 +219,6 @@
       if (this._actionInProgress) return;
 
       const state = StateLayer.getState();
-      const needsConfirmation = StateLayer.needsProximityConfirmation();
-
-      if (needsConfirmation) {
-        ViewLayer.showError('Please confirm you are at the show first');
-        return;
-      }
-
-      const gating = StateLayer.canUseSpeaker();
-      if (!gating.allowed) {
-        const message = ContentLayer.getErrorMessage(gating.code, state);
-        ViewLayer.showError(message);
-        return;
-      }
 
       StateLayer.trackUserAction('speaker_enable');
 
@@ -262,11 +249,6 @@
 
     async handleSpeakerExtend() {
       if (this._actionInProgress) return;
-
-      if (!StateLayer.canExtendSpeaker()) {
-        ViewLayer.showError('Extension is not available right now.');
-        return;
-      }
 
       const state = StateLayer.getState();
 
@@ -347,17 +329,23 @@
       }
 
       this._countdownInterval = setInterval(() => {
-        StateLayer.tickSpeakerCountdown();
-
         const state = StateLayer.getState();
-
-        if (state.speaker.remainingSeconds <= 0) {
+        
+        // If speaker off, stop countdown
+        if (!state.speaker.enabled) {
           this._stopCountdown();
+          return;
         }
 
-        if (state.speaker.remainingSeconds === 30 && !state.speaker.maxSessionReached) {
-          const content = ContentLayer.getSpeakerContent(state, ThemeLayer.mapStateToFlags(state));
-          ViewLayer.showInfo(content.toasts.sessionEndingSoon);
+        // If in protection mode, countdown uses FPP time (handled by polling)
+        // If in active timer mode, tick down remainingSeconds
+        if (!state.speaker.gracefulShutoff && state.speaker.remainingSeconds > 0) {
+          StateLayer.tickSpeakerCountdown();
+        }
+
+        // Stop if reached 0
+        if (state.speaker.remainingSeconds <= 0 && !state.speaker.gracefulShutoff) {
+          this._stopCountdown();
         }
       }, 1000);
     },

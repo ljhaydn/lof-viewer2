@@ -1,7 +1,12 @@
 <?php
 /**
- * REST proxy for Lights on Falcon Viewer v2
- * Merged class: RF + FPP + Speaker endpoints with geo-gating, device gating, and mid-song protection
+ * LOF Viewer V2 - REST API Handler
+ * 
+ * Handles all REST endpoints for RF proxy, FPP proxy, and speaker control.
+ * Speaker logic implements invisible caps, song protection, and activity-based timing.
+ * 
+ * @package LOF_Viewer_V2
+ * @version 0.2.0
  */
 
 if (!defined('ABSPATH')) {
@@ -9,571 +14,614 @@ if (!defined('ABSPATH')) {
 }
 
 class LOF_Viewer2_REST {
-
-    const REST_NAMESPACE = 'lof-viewer/v1';
-    const OPTION_RF_API_BASE = 'lof_viewer_rf_api_base';
-    const OPTION_RF_BEARER_KEY = 'lof_viewer_rf_bearer_token';
-    const OPTION_FPP_BASE = 'lof_viewer_fpp_base';
-    const OPTION_SPEAKER_CONFIG = 'lof_viewer_v2_speaker_config';
-    const OPTION_SPEAKER_STATE = 'lof_viewer_v2_speaker_state';
-
+    
+    /**
+     * Initialize REST routes
+     */
     public static function init() {
         add_action('rest_api_init', array(__CLASS__, 'register_routes'));
     }
-
+    
+    /**
+     * Register all REST API routes
+     */
     public static function register_routes() {
-        register_rest_route(self::REST_NAMESPACE, '/show', array(
+        
+        // RF Proxy endpoints
+        register_rest_route('lof-viewer/v1', '/show', array(
             'methods' => 'GET',
-            'callback' => array(__CLASS__, 'handle_show'),
+            'callback' => array(__CLASS__, 'handle_rf_show'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/request', array(
+        
+        register_rest_route('lof-viewer/v1', '/request', array(
             'methods' => 'POST',
-            'callback' => array(__CLASS__, 'handle_request'),
+            'callback' => array(__CLASS__, 'handle_rf_request'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/vote', array(
+        
+        register_rest_route('lof-viewer/v1', '/vote', array(
             'methods' => 'POST',
-            'callback' => array(__CLASS__, 'handle_vote'),
+            'callback' => array(__CLASS__, 'handle_rf_vote'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/fpp/status', array(
+        
+        // FPP Proxy endpoints
+        register_rest_route('lof-viewer/v1/fpp', '/status', array(
             'methods' => 'GET',
             'callback' => array(__CLASS__, 'handle_fpp_status'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/speaker', array(
+        
+        // Speaker control endpoints
+        register_rest_route('lof-viewer/v1', '/speaker', array(
             'methods' => 'GET',
             'callback' => array(__CLASS__, 'handle_speaker_status'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/speaker', array(
+        
+        register_rest_route('lof-viewer/v1', '/speaker', array(
             'methods' => 'POST',
             'callback' => array(__CLASS__, 'handle_speaker_enable'),
             'permission_callback' => '__return_true',
         ));
-
-        register_rest_route(self::REST_NAMESPACE, '/speaker/notify', array(
+        
+        register_rest_route('lof-viewer/v1/speaker', '/notify', array(
             'methods' => 'POST',
             'callback' => array(__CLASS__, 'handle_speaker_notify'),
             'permission_callback' => '__return_true',
         ));
     }
-
-    public static function handle_show(\WP_REST_Request $request) {
-        $token = self::get_rf_bearer_token();
-        if (!$token) {
-            return rest_ensure_response(array(
+    
+    // =========================================================================
+    // RF PROXY ENDPOINTS
+    // =========================================================================
+    
+    /**
+     * Handle RF show details request
+     */
+    public static function handle_rf_show($request) {
+        $rf_base = get_option('lof_viewer_rf_api_base', '');
+        $rf_token = get_option('lof_viewer_rf_bearer_token', '');
+        
+        if (empty($rf_base) || empty($rf_token)) {
+            return new WP_REST_Response(array(
                 'success' => false,
-                'where' => 'no_token',
-                'message' => 'Remote Falcon bearer token not configured',
-            ));
+                'error' => 'RF API not configured',
+            ), 500);
         }
-
-        $api_base = self::get_rf_api_base();
-        $remote_url = $api_base . '/showDetails';
-
-        $response = wp_remote_get($remote_url, array(
-            'timeout' => 10,
+        
+        $url = trailingslashit($rf_base) . 'remoteViewerDetails';
+        
+        $response = wp_remote_get($url, array(
             'headers' => array(
-                'Accept' => 'application/json',
-                'Authorization' => 'Bearer ' . $token,
+                'Authorization' => 'Bearer ' . $rf_token,
             ),
+            'timeout' => 10,
         ));
-
+        
         if (is_wp_error($response)) {
-            return rest_ensure_response(array(
+            return new WP_REST_Response(array(
                 'success' => false,
-                'where' => 'wp_remote_get',
-                'url' => $remote_url,
                 'error' => $response->get_error_message(),
-            ));
+            ), 500);
         }
-
-        $code = wp_remote_retrieve_response_code($response);
+        
         $body = wp_remote_retrieve_body($response);
-
-        if ($code < 200 || $code >= 300) {
-            return rest_ensure_response(array(
-                'success' => false,
-                'where' => 'rf_http_status',
-                'url' => $remote_url,
-                'status' => $code,
-                'body' => $body,
-            ));
-        }
-
         $data = json_decode($body, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return rest_ensure_response(array(
-                'success' => false,
-                'where' => 'rf_bad_json',
-                'url' => $remote_url,
-                'body' => $body,
-            ));
-        }
-
-        return rest_ensure_response(array(
+        
+        return new WP_REST_Response(array(
             'success' => true,
-            'url' => $remote_url,
             'data' => $data,
-        ));
+        ), 200);
     }
-
-    public static function handle_request(\WP_REST_Request $request) {
-        $token = self::get_rf_bearer_token();
-        if (!$token) {
-            return new \WP_Error('rf_no_token', 'Remote Falcon bearer token not configured', array('status' => 500));
-        }
-
+    
+    /**
+     * Handle RF song request
+     */
+    public static function handle_rf_request($request) {
         $params = $request->get_json_params();
-        $sequence = '';
-        if (isset($params['sequence'])) {
-            $sequence = sanitize_text_field($params['sequence']);
-        } elseif (isset($params['song_id'])) {
-            $sequence = sanitize_text_field($params['song_id']);
-        }
-
-        if ('' === $sequence) {
-            return new \WP_Error('rf_missing_sequence', 'Song / sequence ID is required', array('status' => 400));
-        }
-
-        $api_base = self::get_rf_api_base();
-        $remote_url = $api_base . '/addSequenceToQueue';
-
-        $rf_payload = array('sequence' => $sequence);
-        if (!empty($params['visitor_id'])) {
-            $rf_payload['visitorId'] = sanitize_text_field($params['visitor_id']);
-        }
-
-        $response = wp_remote_post($remote_url, array(
-            'timeout' => 10,
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ),
-            'body' => wp_json_encode($rf_payload),
-        ));
-
-        if (is_wp_error($response)) {
-            return new \WP_Error('rf_http_error', $response->get_error_message(), array('status' => 502));
-        }
-
-        $code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $decoded = json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $decoded = null;
-        }
-
-        return rest_ensure_response(array(
-            'status' => $code,
-            'data' => $decoded,
-        ));
-    }
-
-    public static function handle_vote(\WP_REST_Request $request) {
-        $token = self::get_rf_bearer_token();
-        if (!$token) {
-            return new \WP_Error('rf_no_token', 'Remote Falcon bearer token not configured', array('status' => 500));
-        }
-
-        $params = $request->get_json_params();
-        $sequence = isset($params['song_id']) ? sanitize_text_field($params['song_id']) : '';
-
-        if ('' === $sequence) {
-            return new \WP_Error('rf_missing_sequence', 'Song / sequence ID is required', array('status' => 400));
-        }
-
-        $api_base = self::get_rf_api_base();
-        $remote_url = $api_base . '/voteForSequence';
-
-        $rf_payload = array('sequence' => $sequence);
-        if (!empty($params['visitor_id'])) {
-            $rf_payload['visitorId'] = sanitize_text_field($params['visitor_id']);
-        }
-
-        $response = wp_remote_post($remote_url, array(
-            'timeout' => 10,
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ),
-            'body' => wp_json_encode($rf_payload),
-        ));
-
-        if (is_wp_error($response)) {
-            return new \WP_Error('rf_http_error', $response->get_error_message(), array('status' => 502));
-        }
-
-        $code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $decoded = json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $decoded = null;
-        }
-
-        return rest_ensure_response(array(
-            'status' => $code,
-            'data' => $decoded,
-        ));
-    }
-
-    public static function handle_fpp_status(\WP_REST_Request $request) {
-        $base = get_option(self::OPTION_FPP_BASE);
-        if (!is_string($base) || '' === trim($base)) {
-            $base = 'http://10.9.7.102';
-        }
-
-        $base = untrailingslashit(trim($base));
-        $remote_url = $base . '/api/fppd/status';
-
-        $response = wp_remote_get($remote_url, array(
-            'timeout' => 5,
-            'headers' => array('Accept' => 'application/json'),
-        ));
-
-        if (is_wp_error($response)) {
-            return rest_ensure_response(array(
+        $song_id = $params['song_id'] ?? '';
+        $visitor_id = $params['visitor_id'] ?? '';
+        
+        if (empty($song_id)) {
+            return new WP_REST_Response(array(
                 'success' => false,
-                'where' => 'wp_remote_get',
-                'url' => $remote_url,
+                'error' => 'song_id required',
+            ), 400);
+        }
+        
+        $rf_base = get_option('lof_viewer_rf_api_base', '');
+        $rf_token = get_option('lof_viewer_rf_bearer_token', '');
+        
+        $url = trailingslashit($rf_base) . 'addSequenceToQueue';
+        
+        $response = wp_remote_post($url, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $rf_token,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode(array(
+                'sequence' => $song_id,
+                'visitorId' => $visitor_id,
+            )),
+            'timeout' => 10,
+        ));
+        
+        if (is_wp_error($response)) {
+            return new WP_REST_Response(array(
+                'success' => false,
                 'error' => $response->get_error_message(),
-            ));
+            ), 500);
         }
-
-        $code = wp_remote_retrieve_response_code($response);
+        
+        $status = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
-
-        if ($code < 200 || $code >= 300) {
-            return rest_ensure_response(array(
-                'success' => false,
-                'where' => 'fpp_http_status',
-                'url' => $remote_url,
-                'status' => $code,
-                'body' => $body,
-            ));
-        }
-
         $data = json_decode($body, true);
-        if (JSON_ERROR_NONE !== json_last_error()) {
-            return rest_ensure_response(array(
-                'success' => false,
-                'where' => 'fpp_bad_json',
-                'url' => $remote_url,
-                'body' => $body,
-            ));
-        }
-
-        return rest_ensure_response(array(
-            'success' => true,
-            'url' => $remote_url,
+        
+        // Track activity if speaker is on
+        self::record_speaker_activity('SONG_REQUEST');
+        
+        return new WP_REST_Response(array(
+            'success' => ($status >= 200 && $status < 300),
+            'status' => $status,
             'data' => $data,
-        ));
+        ), $status);
     }
-
-    public static function handle_speaker_status(\WP_REST_Request $request) {
-        $config = self::get_speaker_config();
+    
+    /**
+     * Handle RF vote request
+     */
+    public static function handle_rf_vote($request) {
+        $params = $request->get_json_params();
+        $song_id = $params['song_id'] ?? '';
+        $visitor_id = $params['visitor_id'] ?? '';
+        
+        if (empty($song_id)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'error' => 'song_id required',
+            ), 400);
+        }
+        
+        $rf_base = get_option('lof_viewer_rf_api_base', '');
+        $rf_token = get_option('lof_viewer_rf_bearer_token', '');
+        
+        $url = trailingslashit($rf_base) . 'addVote';
+        
+        $response = wp_remote_post($url, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $rf_token,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode(array(
+                'sequence' => $song_id,
+                'visitorId' => $visitor_id,
+            )),
+            'timeout' => 10,
+        ));
+        
+        if (is_wp_error($response)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            ), 500);
+        }
+        
+        $status = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        return new WP_REST_Response(array(
+            'success' => ($status >= 200 && $status < 300),
+            'status' => $status,
+            'data' => $data,
+        ), $status);
+    }
+    
+    // =========================================================================
+    // FPP PROXY ENDPOINTS
+    // =========================================================================
+    
+    /**
+     * Handle FPP status request
+     */
+    public static function handle_fpp_status($request) {
+        $fpp_base = get_option('lof_viewer_fpp_base', 'http://10.9.7.102');
+        $url = trailingslashit($fpp_base) . 'api/fppd/status';
+        
+        $response = wp_remote_get($url, array('timeout' => 5));
+        
+        if (is_wp_error($response)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            ), 500);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'data' => $data,
+        ), 200);
+    }
+    
+    // =========================================================================
+    // SPEAKER CONTROL
+    // =========================================================================
+    
+    /**
+     * Get speaker status
+     */
+    public static function handle_speaker_status($request) {
         $state = self::get_speaker_state();
+        $config = self::get_speaker_config();
         $now = time();
-
-        $remaining = max(0, $state['expires_at'] - $now);
-        $enabled = ($state['status'] === 'on' && $remaining > 0);
-
-        $fpp_status = self::check_fpp_playing();
-
-        $remote_ip = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+        
+        // Get FPP status for fppPlaying
+        $fpp_data = self::check_fpp_status_internal();
+        $fpp_playing = $fpp_data['success'] && self::is_fpp_playing_song($fpp_data['data']);
+        
+        // Calculate remaining time
+        $remaining = 0;
+        if ($state['status'] === 'on') {
+            if ($state['mode'] === 'ACTIVE_TIMER') {
+                $remaining = max(0, $state['expires_at'] - $now);
+            } else if ($state['mode'] === 'SONG_PROTECTION' && $fpp_data['success']) {
+                $remaining = $fpp_data['data']['seconds_remaining'] ?? 0;
+            }
+        }
+        
+        // Determine proximity tier
+        $remote_ip = self::get_client_ip();
         $tier_info = self::determine_speaker_tier($remote_ip);
-
-        return rest_ensure_response(array(
+        
+        return new WP_REST_Response(array(
             'success' => true,
             'data' => array(
-                'enabled' => $enabled,
+                'enabled' => $state['status'] === 'on',
                 'remainingSeconds' => $remaining,
                 'sessionStartedAt' => $state['session_started_at'],
                 'sessionLifetimeStartedAt' => $state['session_lifetime_started_at'],
-                'override' => $config['mode'] === 'locked_on',
-                'mode' => $config['mode'],
-                'message' => $config['override_message'],
-                'source' => $state['last_source'],
-                'fppPlaying' => $fpp_status['playing'],
-                'currentSong' => $fpp_status['current_sequence'],
-                'currentSongAudio' => $fpp_status['current_song_audio'],
-                'maxSessionReached' => $state['max_session_reached'],
-                'lifetimeCapReached' => $state['lifetime_cap_reached'],
-                'targetSongForShutoff' => $state['target_song_for_shutoff'],
-                'gracefulShutoff' => $state['graceful_shutoff'],
+                'override' => $state['override'] ?? false,
+                'mode' => $state['mode'] ?? 'automatic',
+                'message' => $state['message'] ?? '',
+                'source' => $state['last_source'] ?? '',
+                'fppPlaying' => $fpp_playing,
+                'currentSong' => $fpp_data['data']['current_sequence'] ?? null,
+                'currentSongAudio' => $fpp_data['data']['current_song'] ?? null,
+                'maxSessionReached' => ($now - $state['session_started_at']) >= 900,
+                'lifetimeCapReached' => ($now - $state['session_lifetime_started_at']) >= 1800,
+                'targetSongForShutoff' => $state['protected_sequence'] ?? null,
+                'gracefulShutoff' => $state['mode'] === 'SONG_PROTECTION',
                 'proximityTier' => $tier_info['tier'],
                 'proximityReason' => $tier_info['reason'],
                 'config' => array(
-                    'fmFrequency' => $config['fm_frequency'],
-                    'streamUrl' => $config['stream_url'],
-                    'noiseCurfewHour' => $config['noise_curfew_hour'],
-                    'noiseCurfewEnabled' => $config['noise_curfew_enabled'],
-                    'noiseCurfewOverride' => $config['noise_curfew_override'],
+                    'fmFrequency' => $config['fm_frequency'] ?? '107.7',
+                    'streamUrl' => $config['stream_url'] ?? '',
+                    'noiseCurfewHour' => $config['noise_curfew_hour'] ?? 22,
+                    'noiseCurfewEnabled' => $config['noise_curfew_enabled'] ?? true,
+                    'noiseCurfewOverride' => $config['noise_curfew_override'] ?? false,
                 ),
             ),
-        ));
+        ), 200);
     }
-
-    public static function handle_speaker_enable(\WP_REST_Request $request) {
+    
+    /**
+     * Enable/extend speaker
+     */
+    public static function handle_speaker_enable($request) {
         $params = $request->get_json_params();
-        $source = isset($params['source']) ? sanitize_text_field($params['source']) : 'viewer';
-        $is_extension = isset($params['extension']) && $params['extension'];
-        $proximity_confirmed = isset($params['proximity_confirmed']) && $params['proximity_confirmed'];
-
-        $config = self::get_speaker_config();
+        $source = $params['source'] ?? 'viewer';
+        $is_extension = $params['extension'] ?? false;
+        $proximity_confirmed = $params['proximity_confirmed'] ?? false;
+        
         $state = self::get_speaker_state();
+        $config = self::get_speaker_config();
         $now = time();
-
-        $remote_ip = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
-
-        $rate_limit_check = self::check_rate_limit($remote_ip, $source);
-        if (!$rate_limit_check['allowed']) {
-            return rest_ensure_response(array(
+        $remote_ip = self::get_client_ip();
+        
+        // Per-user anti-spam cooldown
+        $user_cooldown_key = 'lof_speaker_cooldown_' . md5($remote_ip);
+        $last_press = get_transient($user_cooldown_key);
+        
+        if ($source !== 'physical' && $last_press && ($now - $last_press) < 5) {
+            return new WP_REST_Response(array(
                 'success' => false,
-                'error' => $rate_limit_check['message'],
+                'error' => 'Please wait a moment before pressing again',
                 'errorCode' => 'RATE_LIMIT',
-            ));
+            ), 429);
         }
-
+        
+        set_transient($user_cooldown_key, $now, 10);
+        
+        // Check gating (curfew, geo, device, etc)
         $gating = self::check_speaker_gating($config, $state, $source, $remote_ip, $proximity_confirmed);
+        
         if (!$gating['allowed']) {
-            return rest_ensure_response(array(
+            return new WP_REST_Response(array(
                 'success' => false,
                 'error' => $gating['message'],
                 'errorCode' => $gating['code'],
-            ));
+            ), 403);
         }
-
-        $remaining = max(0, $state['expires_at'] - $now);
-        $is_on = ($state['status'] === 'on' && $remaining > 0);
-
-        if ($is_on && $remaining > $config['extension_window_seconds'] && !$is_extension) {
-            return rest_ensure_response(array(
+        
+        // Handle extension (activity)
+        if ($is_extension && $state['status'] === 'on') {
+            self::record_speaker_activity('MANUAL_EXTEND');
+            
+            return new WP_REST_Response(array(
                 'success' => true,
-                'data' => array(
-                    'enabled' => true,
-                    'remainingSeconds' => $remaining,
-                    'sessionStartedAt' => $state['session_started_at'],
-                    'message' => 'Speakers already on',
-                ),
-            ));
+                'data' => array('message' => 'Extended by 5 minutes'),
+            ), 200);
         }
-
-        $script_result = self::trigger_fpp_script($config['on_script'], $config['fpp_host'], $config['fpp_api_key']);
-        if (!$script_result['success']) {
-            return rest_ensure_response(array(
-                'success' => false,
-                'error' => 'Failed to trigger speaker script',
-                'errorCode' => 'FPP_SCRIPT_FAILED',
-            ));
-        }
-
-        $session_start = $is_on ? $state['session_started_at'] : $now;
-        $lifetime_start = $state['session_lifetime_started_at'] > 0 ? $state['session_lifetime_started_at'] : $now;
-        $new_expires = $now + $config['duration_seconds'];
-
-        $state['status'] = 'on';
-        $state['expires_at'] = $new_expires;
-        $state['session_started_at'] = $session_start;
-        $state['session_lifetime_started_at'] = $lifetime_start;
-        $state['last_source'] = $source;
-        $state['last_updated'] = $now;
-        $state['graceful_shutoff'] = false;
-        $state['target_song_for_shutoff'] = null;
-        $state['max_session_reached'] = false;
-        $state['lifetime_cap_reached'] = false;
-
-        self::save_speaker_state($state);
-        self::set_rate_limit($remote_ip, $source);
-
-        return rest_ensure_response(array(
-            'success' => true,
-            'data' => array(
-                'enabled' => true,
-                'remainingSeconds' => $config['duration_seconds'],
-                'sessionStartedAt' => $session_start,
-                'sessionLifetimeStartedAt' => $lifetime_start,
-                'message' => $is_extension ? 'Speaker extended' : 'Speaker enabled',
-            ),
-        ));
-    }
-
-    public static function handle_speaker_notify(\WP_REST_Request $request) {
-        $params = $request->get_json_params();
-        $status = isset($params['status']) ? sanitize_text_field($params['status']) : '';
-        $source = isset($params['source']) ? sanitize_text_field($params['source']) : 'fpp';
-
-        $state = self::get_speaker_state();
-        $now = time();
-
-        $state['last_notified_status'] = $status;
-        $state['last_notified_at'] = $now;
-
-        if ($status === 'on') {
-            $config = self::get_speaker_config();
-            if ($state['status'] !== 'on') {
-                $state['status'] = 'on';
-                $state['expires_at'] = $now + $config['duration_seconds'];
-                $state['session_started_at'] = $now;
+        
+        // Fresh enable
+        if ($state['status'] === 'off' || $state['status'] === '') {
+            
+            // Reset lifetime if enough time passed or first enable
+            if ($state['session_lifetime_started_at'] === 0) {
                 $state['session_lifetime_started_at'] = $now;
             }
+            
+            // Initialize new session
+            $state['status'] = 'on';
+            $state['mode'] = 'ACTIVE_TIMER';
+            $state['session_started_at'] = $now;
+            $state['expires_at'] = $now + ($config['duration_seconds'] ?? 300);
             $state['last_source'] = $source;
+            $state['protected_sequence'] = null;
+            $state['protected_song'] = null;
             $state['last_updated'] = $now;
-        } elseif ($status === 'off') {
-            $state['status'] = 'off';
-            $state['expires_at'] = $now;
-            $state['last_updated'] = $now;
-            $state['session_lifetime_started_at'] = 0;
-            $state['graceful_shutoff'] = false;
-            $state['target_song_for_shutoff'] = null;
-            $state['max_session_reached'] = false;
-            $state['lifetime_cap_reached'] = false;
+            
+            update_option('lof_viewer_v2_speaker_state', $state);
+            
+            // Trigger FPP script to turn on amplifier
+            self::trigger_fpp_script($config['on_script'] ?? 'speaker-amp-on.sh');
+            
+            error_log("[LOF Speaker] Enabled by {$source} - 5:00 timer started");
+            
+            return new WP_REST_Response(array(
+                'success' => true,
+                'data' => array(
+                    'message' => 'Speakers enabled - 5 minutes',
+                    'remainingSeconds' => $config['duration_seconds'] ?? 300,
+                ),
+            ), 200);
         }
-
-        self::save_speaker_state($state);
-
-        return rest_ensure_response(array(
+        
+        // Already on
+        return new WP_REST_Response(array(
             'success' => true,
-            'message' => 'Notify received',
-        ));
+            'data' => array('message' => 'Speakers already active'),
+        ), 200);
     }
-
-    protected static function get_speaker_config() {
-        $config = get_option(self::OPTION_SPEAKER_CONFIG);
-        if (!is_array($config)) {
-            $config = array();
+    
+    /**
+     * Handle notify from FPP scripts (physical button, amp on/off)
+     */
+    public static function handle_speaker_notify($request) {
+        $params = $request->get_json_params();
+        $status = $params['status'] ?? '';
+        $source = $params['source'] ?? 'fpp';
+        
+        $state = self::get_speaker_state();
+        $now = time();
+        
+        if ($status === 'on') {
+            // Physical button pressed or script turned on
+            if ($state['status'] !== 'on') {
+                // Treat as fresh enable
+                $state['status'] = 'on';
+                $state['mode'] = 'ACTIVE_TIMER';
+                $state['session_started_at'] = $now;
+                $state['session_lifetime_started_at'] = $now;
+                $state['expires_at'] = $now + 300;
+                $state['last_source'] = $source;
+                $state['last_updated'] = $now;
+                
+                update_option('lof_viewer_v2_speaker_state', $state);
+                
+                error_log("[LOF Speaker] Physical button enable detected");
+            }
+        } else if ($status === 'off') {
+            // Script turned off (expected)
+            error_log("[LOF Speaker] Amplifier off notification received");
         }
-
-        return array_merge(array(
+        
+        return new WP_REST_Response(array('success' => true), 200);
+    }
+    
+    // =========================================================================
+    // SPEAKER HELPER FUNCTIONS
+    // =========================================================================
+    
+    /**
+     * Get speaker state from options
+     */
+    protected static function get_speaker_state() {
+        $state = get_option('lof_viewer_v2_speaker_state', array());
+        
+        // Initialize default state
+        $defaults = array(
+            'status' => 'off',
+            'mode' => 'automatic',
+            'session_started_at' => 0,
+            'session_lifetime_started_at' => 0,
+            'expires_at' => 0,
+            'last_source' => '',
+            'protected_sequence' => null,
+            'protected_song' => null,
+            'grace_started_at' => 0,
+            'override' => false,
+            'message' => '',
+            'last_updated' => 0,
+        );
+        
+        return array_merge($defaults, $state);
+    }
+    
+    /**
+     * Get speaker configuration
+     */
+    protected static function get_speaker_config() {
+        $config = get_option('lof_viewer_v2_speaker_config', array());
+        
+        $defaults = array(
             'duration_seconds' => 300,
             'max_session_seconds' => 900,
-            'extension_window_seconds' => 30,
             'max_lifetime_seconds' => 1800,
             'noise_curfew_hour' => 22,
             'noise_curfew_enabled' => true,
             'noise_curfew_override' => false,
-            'mode' => 'automatic',
-            'override_message' => '',
-            'fpp_host' => 'http://10.9.7.102',
-            'fpp_api_key' => '',
+            'fpp_host' => get_option('lof_viewer_fpp_base', 'http://10.9.7.102'),
             'on_script' => 'speaker-amp-on.sh',
             'off_script' => 'speaker-amp-off.sh',
             'fm_frequency' => '107.7',
             'stream_url' => 'https://player.pulsemesh.io/d/G073',
+            'geo_whitelist_ips' => array(),
             'geo_override_enabled' => false,
             'geo_override_tier' => 1,
-            'geo_tier1_cities' => array('Long Beach', 'Signal Hill'),
-            'geo_tier1_postal_prefixes' => array('908'),
-            'geo_log_detections' => false,
-        ), $config);
+            'device_gating_enabled' => false,
+        );
+        
+        return array_merge($defaults, $config);
     }
-
-    protected static function get_speaker_state() {
-        $state = get_option(self::OPTION_SPEAKER_STATE);
-        if (!is_array($state)) {
-            $state = array();
+    
+    /**
+     * Check if FPP is playing a song with audio
+     */
+    protected static function is_fpp_playing_song($fpp_data) {
+        return !empty($fpp_data['current_sequence']) && !empty($fpp_data['current_song']);
+    }
+    
+    /**
+     * Check FPP status (internal use)
+     */
+    protected static function check_fpp_status_internal() {
+        $fpp_base = get_option('lof_viewer_fpp_base', 'http://10.9.7.102');
+        $url = trailingslashit($fpp_base) . 'api/fppd/status';
+        
+        $response = wp_remote_get($url, array('timeout' => 2));
+        
+        if (is_wp_error($response)) {
+            return array('success' => false, 'error' => $response->get_error_message());
         }
-
-        return array_merge(array(
-            'status' => 'off',
-            'expires_at' => 0,
-            'session_started_at' => 0,
-            'session_lifetime_started_at' => 0,
-            'last_source' => '',
-            'last_updated' => 0,
-            'graceful_shutoff' => false,
-            'target_song_for_shutoff' => null,
-            'max_session_reached' => false,
-            'lifetime_cap_reached' => false,
-            'last_notified_status' => '',
-            'last_notified_at' => 0,
-        ), $state);
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        return array(
+            'success' => true,
+            'data' => array(
+                'mode_name' => $data['mode_name'] ?? 'unknown',
+                'current_sequence' => $data['current_sequence'] ?? '',
+                'current_song' => $data['current_song'] ?? '',
+                'seconds_played' => $data['seconds_played'] ?? 0,
+                'seconds_remaining' => $data['seconds_remaining'] ?? 0,
+            ),
+        );
     }
-
-    protected static function save_speaker_state($state) {
-        update_option(self::OPTION_SPEAKER_STATE, $state);
-    }
-
-    protected static function check_speaker_gating($config, $state, $source, $remote_ip, $proximity_confirmed) {
+    
+    /**
+     * Record speaker activity (resets timer if conditions met)
+     */
+    protected static function record_speaker_activity($type) {
+        $state = self::get_speaker_state();
         $now = time();
-        $current_hour = (int) date('G', $now);
-
-        if ($config['mode'] === 'locked_on' && $source !== 'physical') {
+        
+        if ($state['status'] !== 'on') {
+            return; // Speaker not active
+        }
+        
+        // Check session cap (15 minutes cumulative)
+        $session_duration = $now - $state['session_started_at'];
+        if ($session_duration >= 900) {
+            error_log("[LOF Speaker] Activity ignored - session cap reached");
+            return; // Don't reset timer
+        }
+        
+        // Reset timer based on mode
+        if ($state['mode'] === 'ACTIVE_TIMER') {
+            $state['expires_at'] = $now + 300;
+            update_option('lof_viewer_v2_speaker_state', $state);
+            error_log("[LOF Speaker] Activity: {$type} - timer reset to 5:00");
+            
+        } else if ($state['mode'] === 'SONG_PROTECTION') {
+            // Activity during protection - return to active timer
+            $state['mode'] = 'ACTIVE_TIMER';
+            $state['expires_at'] = $now + 300;
+            $state['protected_sequence'] = null;
+            $state['protected_song'] = null;
+            update_option('lof_viewer_v2_speaker_state', $state);
+            error_log("[LOF Speaker] Activity during protection - back to ACTIVE_TIMER");
+        }
+    }
+    
+    /**
+     * Check speaker gating (curfew, geo, device, etc)
+     */
+    protected static function check_speaker_gating($config, $state, $source, $remote_ip, $proximity_confirmed) {
+        
+        // Physical button bypasses all gating
+        if ($source === 'physical') {
+            return array('allowed' => true);
+        }
+        
+        // Override locked mode
+        if ($state['override'] && $state['mode'] === 'locked_on') {
             return array(
                 'allowed' => false,
                 'code' => 'OVERRIDE_LOCKED',
-                'message' => $config['override_message'] ?: 'Speakers locked on for event',
+                'message' => 'Viewer control is disabled during this event',
             );
         }
-
-        if ($config['noise_curfew_enabled'] && !$config['noise_curfew_override'] && $current_hour >= $config['noise_curfew_hour']) {
+        
+        // Noise curfew
+        $current_hour = (int) date('G');
+        if ($config['noise_curfew_enabled'] && 
+            !$config['noise_curfew_override'] && 
+            $current_hour >= $config['noise_curfew_hour']) {
+            
             return array(
                 'allowed' => false,
                 'code' => 'NOISE_CURFEW',
-                'message' => 'Outdoor speakers end at curfew hour',
+                'message' => 'Outdoor speakers end at curfew to be good neighbors',
             );
         }
-
-        $fpp_status = self::check_fpp_playing();
-        if (!$fpp_status['reachable']) {
+        
+        // FPP reachability
+        $fpp = self::check_fpp_status_internal();
+        if (!$fpp['success']) {
             return array(
                 'allowed' => false,
                 'code' => 'FPP_UNREACHABLE',
-                'message' => 'Speaker control temporarily unavailable',
+                'message' => 'The show system is currently offline',
             );
         }
-
-        if (!$fpp_status['playing']) {
-            return array(
-                'allowed' => false,
-                'code' => 'NOT_PLAYING',
-                'message' => 'Speakers only available when show is playing',
-            );
-        }
-
-        $lifetime_duration = $now - $state['session_lifetime_started_at'];
-        if ($state['session_lifetime_started_at'] > 0 && $lifetime_duration >= $config['max_lifetime_seconds']) {
-            return array(
-                'allowed' => false,
-                'code' => 'LIFETIME_CAP_REACHED',
-                'message' => 'Maximum session duration reached',
-            );
-        }
-
-        if ($source !== 'physical') {
-            $tier_info = self::determine_speaker_tier($remote_ip);
-            
-            if ($tier_info['tier'] === 4 || $tier_info['tier'] === 5) {
+        
+        // Geo-gating with whitelist support
+        $tier_info = self::determine_speaker_tier($remote_ip);
+        
+        if ($tier_info['tier'] === 4 || $tier_info['tier'] === 5) {
+            // Tier 4/5 blocked unless proximity confirmed
+            if (!$proximity_confirmed) {
                 return array(
                     'allowed' => false,
                     'code' => 'GEO_BLOCKED',
                     'message' => 'Outdoor speakers only available to guests at the show in Long Beach, CA',
                 );
             }
-
-            if (($tier_info['tier'] === 2 || $tier_info['tier'] === 3) && !$proximity_confirmed) {
-                return array(
-                    'allowed' => false,
-                    'code' => 'PROXIMITY_CONFIRMATION_REQUIRED',
-                    'message' => 'Please confirm you are at the show',
-                );
-            }
-
+        }
+        
+        // Device gating (optional)
+        if ($config['device_gating_enabled']) {
             $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
             $is_mobile = preg_match('/Android|iPhone|iPad|iPod/i', $user_agent);
             $is_lan = self::is_lan_ip($remote_ip);
-
+            
             if (!$is_mobile && !$is_lan) {
                 return array(
                     'allowed' => false,
@@ -582,196 +630,141 @@ class LOF_Viewer2_REST {
                 );
             }
         }
-
-        return array('allowed' => true, 'code' => 'OK', 'message' => '');
+        
+        return array('allowed' => true);
     }
-
+    
+    /**
+     * Determine speaker proximity tier
+     */
     protected static function determine_speaker_tier($ip) {
         $config = self::get_speaker_config();
-
+        
+        // Check admin override
         if ($config['geo_override_enabled']) {
-            $tier = $config['geo_override_tier'];
-            if ($config['geo_log_detections']) {
-                error_log("[LOF Speaker Geo] Override active: tier {$tier}");
-            }
-            return array('tier' => $tier, 'reason' => 'override');
+            return array(
+                'tier' => $config['geo_override_tier'] ?? 1,
+                'reason' => 'admin_override',
+            );
         }
-
+        
+        // Check whitelist
+        if (in_array($ip, $config['geo_whitelist_ips'])) {
+            return array('tier' => 1, 'reason' => 'whitelisted');
+        }
+        
+        // Check LAN
         if (self::is_lan_ip($ip)) {
             return array('tier' => 1, 'reason' => 'lan');
         }
-
-        $country = $_SERVER['HTTP_CF_IPCOUNTRY'] ?? '';
+        
+        // Cloudflare headers for geo-detection
+        $city = $_SERVER['HTTP_CF_IPCITY'] ?? '';
         $region = $_SERVER['HTTP_CF_REGION'] ?? '';
-        $city = $_SERVER['HTTP_CF_CITY'] ?? '';
+        $country = $_SERVER['HTTP_CF_IPCOUNTRY'] ?? '';
         $postal = $_SERVER['HTTP_CF_POSTAL_CODE'] ?? '';
-
-        if ($config['geo_log_detections']) {
-            $masked_ip = preg_replace('/\.\d+$/', '.x', $ip);
-            error_log(sprintf(
-                '[LOF Speaker Geo] IP: %s | Country: %s | Region: %s | City: %s | Postal: %s',
-                $masked_ip, $country, $region, $city, $postal
-            ));
+        
+        // Tier 1: Long Beach / Signal Hill
+        if (in_array(strtolower($city), array('long beach', 'signal hill'))) {
+            return array('tier' => 1, 'reason' => 'long_beach');
         }
-
-        if ($country !== 'US') {
-            return array('tier' => 5, 'reason' => 'international');
+        
+        if (strpos($postal, '908') === 0) {
+            return array('tier' => 1, 'reason' => 'postal_908');
         }
-
-        if ($region !== 'CA') {
+        
+        // Tier 2: Southern California
+        if ($region === 'CA' && in_array(strtolower($city), array(
+            'los angeles', 'torrance', 'carson', 'compton', 'lakewood', 
+            'cerritos', 'bellflower', 'downey', 'norwalk'
+        ))) {
+            return array('tier' => 2, 'reason' => 'southern_california');
+        }
+        
+        // Tier 3: Rest of California
+        if ($region === 'CA') {
+            return array('tier' => 3, 'reason' => 'california');
+        }
+        
+        // Tier 4: Rest of US
+        if ($country === 'US') {
             return array('tier' => 4, 'reason' => 'out_of_state');
         }
-
-        foreach ($config['geo_tier1_cities'] as $nearby) {
-            if (stripos($city, $nearby) !== false) {
-                return array('tier' => 1, 'reason' => 'long_beach_area');
-            }
-        }
-
-        foreach ($config['geo_tier1_postal_prefixes'] as $prefix) {
-            if (substr($postal, 0, strlen($prefix)) === $prefix) {
-                return array('tier' => 1, 'reason' => 'long_beach_postal');
-            }
-        }
-
-        $socal_keywords = array('Los Angeles', 'Orange', 'San Diego', 'Riverside', 'San Bernardino');
-        foreach ($socal_keywords as $keyword) {
-            if (stripos($city, $keyword) !== false) {
-                return array('tier' => 2, 'reason' => 'southern_california');
-            }
-        }
-
-        return array('tier' => 3, 'reason' => 'california');
+        
+        // Tier 5: International
+        return array('tier' => 5, 'reason' => 'international');
     }
-
+    
+    /**
+     * Get client IP (Cloudflare-aware)
+     */
+    protected static function get_client_ip() {
+        $remote_addr = $_SERVER['REMOTE_ADDR'] ?? '';
+        
+        // If request from Cloudflare, trust X-Forwarded-For
+        if (self::is_cloudflare_ip($remote_addr)) {
+            $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+            if ($forwarded) {
+                $ips = array_map('trim', explode(',', $forwarded));
+                $client_ip = $ips[0];
+                
+                // Check if it's LAN
+                if (self::is_lan_ip($client_ip)) {
+                    return $client_ip;
+                }
+            }
+        }
+        
+        // Fall back to Cloudflare connecting IP or remote addr
+        return $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $remote_addr;
+    }
+    
+    /**
+     * Check if IP is LAN
+     */
     protected static function is_lan_ip($ip) {
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
             return false;
         }
-
+        
         $parts = explode('.', $ip);
         if (count($parts) !== 4) {
             return false;
         }
-
+        
+        // 10.x.x.x
         if ($parts[0] === '10') {
             return true;
         }
-
+        
+        // 192.168.x.x
         if ($parts[0] === '192' && $parts[1] === '168') {
             return true;
         }
-
-        if ($parts[0] === '172') {
-            $second = (int) $parts[1];
-            if ($second >= 16 && $second <= 31) {
-                return true;
-            }
+        
+        // 172.16.x.x - 172.31.x.x
+        if ($parts[0] === '172' && $parts[1] >= 16 && $parts[1] <= 31) {
+            return true;
         }
-
+        
         return false;
     }
-
-    protected static function check_rate_limit($ip, $source) {
-        if ($source === 'physical') {
-            return array('allowed' => true);
-        }
-
-        $cooldown_seconds = 45;
-        $cool_key = 'lof_speaker_ip_' . md5($ip);
-
-        if (get_transient($cool_key)) {
-            return array(
-                'allowed' => false,
-                'message' => 'Please wait before enabling speakers again',
-            );
-        }
-
-        return array('allowed' => true);
+    
+    /**
+     * Check if IP is Cloudflare
+     */
+    protected static function is_cloudflare_ip($ip) {
+        // Simplified check - in production, check against Cloudflare IP ranges
+        return strpos($ip, '172.') === 0 || strpos($ip, '104.') === 0;
     }
-
-    protected static function set_rate_limit($ip, $source) {
-        if ($source === 'physical') {
-            return;
-        }
-
-        $cooldown_seconds = 45;
-        $cool_key = 'lof_speaker_ip_' . md5($ip);
-        set_transient($cool_key, 1, $cooldown_seconds);
-    }
-
-    protected static function check_fpp_playing() {
-        $base = get_option(self::OPTION_FPP_BASE, 'http://10.9.7.102');
-        $url = untrailingslashit($base) . '/api/fppd/status';
-
-        $response = wp_remote_get($url, array('timeout' => 3));
-
-        if (is_wp_error($response)) {
-            return array('reachable' => false, 'playing' => false, 'current_sequence' => null, 'current_song_audio' => null, 'seconds_remaining' => 0);
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if (!is_array($data)) {
-            return array('reachable' => false, 'playing' => false, 'current_sequence' => null, 'current_song_audio' => null, 'seconds_remaining' => 0);
-        }
-
-        $status = isset($data['status_name']) ? $data['status_name'] : (isset($data['mode_name']) ? $data['mode_name'] : '');
-        $playing = (stripos($status, 'playing') !== false);
-        $current_sequence = isset($data['current_sequence']) ? $data['current_sequence'] : null;
-        $current_song = isset($data['current_song']) ? $data['current_song'] : null;
-        $seconds_remaining = isset($data['seconds_remaining']) ? (int)$data['seconds_remaining'] : 0;
-
-        return array(
-            'reachable' => true,
-            'playing' => $playing,
-            'current_sequence' => $current_sequence,
-            'current_song_audio' => $current_song,
-            'seconds_remaining' => $seconds_remaining,
-        );
-    }
-
-    protected static function trigger_fpp_script($script_name, $fpp_host, $api_key) {
-        $url = untrailingslashit($fpp_host) . '/api/command';
-
-        $payload = array(
-            'command' => 'Run Script',
-            'args' => array($script_name),
-        );
-
-        $headers = array(
-            'Content-Type' => 'application/json',
-        );
-
-        if (!empty($api_key)) {
-            $headers['Authorization'] = 'Bearer ' . $api_key;
-        }
-
-        $response = wp_remote_post($url, array(
-            'timeout' => 5,
-            'headers' => $headers,
-            'body' => wp_json_encode($payload),
-        ));
-
-        if (is_wp_error($response)) {
-            return array('success' => false, 'error' => $response->get_error_message());
-        }
-
-        $code = wp_remote_retrieve_response_code($response);
-        return array('success' => ($code >= 200 && $code < 300));
-    }
-
-    protected static function get_rf_api_base() {
-        $base = get_option(self::OPTION_RF_API_BASE);
-        if (!is_string($base) || '' === trim($base)) {
-            $base = 'https://getlitproductions.co/remote-falcon-external-api';
-        }
-        return untrailingslashit(trim($base));
-    }
-
-    protected static function get_rf_bearer_token() {
-        $token = get_option(self::OPTION_RF_BEARER_KEY);
-        return is_string($token) ? trim($token) : '';
+    
+    /**
+     * Trigger FPP script
+     */
+    protected static function trigger_fpp_script($script_name) {
+        $fpp_base = get_option('lof_viewer_fpp_base', 'http://10.9.7.102');
+        $url = trailingslashit($fpp_base) . 'api/command/Run Script/' . urlencode($script_name);
+        
+        wp_remote_get($url, array('timeout' => 5, 'blocking' => false));
     }
 }

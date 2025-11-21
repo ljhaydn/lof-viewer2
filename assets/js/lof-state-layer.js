@@ -110,9 +110,10 @@
         return;
       }
 
-      const now = Date.now();
       const data = apiResponse.data;
 
+      // Update speaker state
+      // NOTE: sessionStartedAt and sessionLifetimeStartedAt are already in milliseconds from API
       this._state.speaker = {
         enabled: data.enabled,
         remainingSeconds: data.remainingSeconds || 0,
@@ -141,6 +142,7 @@
         },
       };
 
+      // Update FPP data if available
       if (data.fppPlaying !== undefined) {
         this._state.fppData = this._state.fppData || {};
         this._state.fppData.status = data.fppPlaying ? 'playing' : 'idle';
@@ -254,15 +256,6 @@
         };
       }
 
-      if (state.speaker.lifetimeCapReached) {
-        return {
-          allowed: false,
-          code: 'LIFETIME_CAP_REACHED',
-          reasonKey: 'lifetimeCapReached',
-          displayMode: 'capped',
-        };
-      }
-
       return {
         allowed: true,
         code: 'OK',
@@ -286,12 +279,15 @@
         return false;
       }
 
-      if (state.speaker.maxSessionReached || state.speaker.lifetimeCapReached) {
+      // Check session cap (15 minutes cumulative)
+      const now = Date.now();
+      const sessionDuration = (now - state.speaker.sessionStartedAt) / 1000;
+      
+      if (sessionDuration >= 900) {
         return false;
       }
 
-      const sessionDuration = (Date.now() - state.speaker.sessionStartedAt) / 1000;
-      if (sessionDuration >= 900) {
+      if (state.speaker.maxSessionReached || state.speaker.lifetimeCapReached) {
         return false;
       }
 
