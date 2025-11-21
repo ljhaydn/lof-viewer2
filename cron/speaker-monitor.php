@@ -64,12 +64,21 @@ function lof_speaker_monitor_check() {
 function lof_monitor_active_timer($state, $config, $now) {
     $remaining = $state['expires_at'] - $now;
     
+    // DEBUG: Log timer details
+    error_log(sprintf(
+        '[LOF Speaker Monitor] ACTIVE_TIMER check: expires_at=%d, now=%d, remaining=%d seconds',
+        $state['expires_at'],
+        $now,
+        $remaining
+    ));
+    
     // Timer not expired yet
     if ($remaining > 0) {
         return;
     }
     
     // Timer expired - check FPP
+    error_log('[LOF Speaker Monitor] Timer EXPIRED - checking FPP');
     $fpp = lof_check_fpp_status($config['fpp_host']);
     
     if (!$fpp['success']) {
@@ -85,6 +94,7 @@ function lof_monitor_active_timer($state, $config, $now) {
     if (lof_is_song_playing($fpp['data'])) {
         // Song playing - enter protection mode
         $state['mode'] = 'SONG_PROTECTION';
+        $state['graceful_shutoff'] = true;  // CRITICAL: Set gracefulShutoff flag
         $state['protected_sequence'] = $fpp['data']['current_sequence'];
         $state['protected_song'] = $fpp['data']['current_song'];
         update_option('lof_viewer_v2_speaker_state', $state);
@@ -92,8 +102,8 @@ function lof_monitor_active_timer($state, $config, $now) {
         return;
     } else {
         // No song - turn off immediately
+        error_log('[LOF Speaker Monitor] Timer expired, no song - turning OFF');
         lof_turn_off_speaker($state, $config);
-        error_log('[LOF Speaker Monitor] Timer expired, no song - turned off');
         return;
     }
 }
@@ -135,6 +145,7 @@ function lof_monitor_song_protection($state, $config, $now) {
             // New song - update protection
             $state['protected_sequence'] = $fpp['data']['current_sequence'];
             $state['protected_song'] = $fpp['data']['current_song'];
+            $state['graceful_shutoff'] = true;  // Keep gracefulShutoff flag
             update_option('lof_viewer_v2_speaker_state', $state);
             error_log('[LOF Speaker Monitor] Protection updated: ' . $fpp['data']['current_song']);
             return;

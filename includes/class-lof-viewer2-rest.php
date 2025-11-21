@@ -381,6 +381,10 @@ class LOF_Viewer2_REST {
             if ( $state['graceful_shutoff'] ) {
                 // Protection mode - use FPP time
                 $remaining_seconds = $seconds_remaining;
+                error_log( sprintf(
+                    '[LOF Speaker] PROTECTION MODE: FPP secondsRemaining=%d',
+                    $seconds_remaining
+                ) );
             } else {
                 // Active timer mode
                 $remaining_seconds = max( 0, $state['expires_at'] - $now );
@@ -569,6 +573,15 @@ class LOF_Viewer2_REST {
         $state['source'] = $source;
         $state['last_updated'] = $now;
         $state['graceful_shutoff'] = false;
+
+        // DEBUG: Log what we're setting
+        error_log(sprintf(
+            '[LOF Speaker] Speaker ENABLED: duration=%d, now=%d, expires_at=%d (in %d seconds)',
+            $duration,
+            $now,
+            $state['expires_at'],
+            $duration
+        ));
 
         update_option( 'lof_viewer_v2_speaker_state', $state );
 
