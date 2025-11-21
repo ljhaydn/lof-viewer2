@@ -339,7 +339,7 @@
 
         // Proximity confirm button
         proximityConfirm: {
-          default: '✓ Yes, Im at the show',
+          default: '✓ Yes, I'm at the show',
           christmas: "✓ Yes, I'm at the North Pole!",
           halloween: "✓ Yes, I'm here in person!",
         },
@@ -449,12 +449,14 @@
       const buttonLabel = (modeContent.buttonLabel && modeContent.buttonLabel[theme]) || modeContent.buttonLabel?.default || '';
       let helperText = (modeContent.helperText && modeContent.helperText[theme]) || modeContent.helperText?.default || '';
 
-      // Replace countdown placeholder
+      // Replace countdown placeholder in helperText
       helperText = helperText.replace(/\{countdown\}/g, countdown);
 
       let countdownLabel = '';
       if (flags.showCountdown) {
         countdownLabel = (modeContent.countdownLabel && modeContent.countdownLabel[theme]) || modeContent.countdownLabel?.default || countdown;
+        // Replace countdown placeholder in countdownLabel too
+        countdownLabel = countdownLabel.replace(/\{countdown\}/g, countdown);
       }
 
       const proximityConfirmLabel = (speaker.proximityConfirm && speaker.proximityConfirm[theme]) || speaker.proximityConfirm?.default || '✓ Yes, I\'m at the show';

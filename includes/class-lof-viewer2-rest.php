@@ -81,6 +81,17 @@ class LOF_Viewer2_REST {
                 'permission_callback' => '__return_true',
             )
         );
+
+        // Speaker notify (POST) - called by FPP scripts after GPIO change
+        register_rest_route(
+            self::REST_NAMESPACE,
+            '/speaker/notify',
+            array(
+                'methods'             => 'POST',
+                'callback'            => array( __CLASS__, 'handle_speaker_notify' ),
+                'permission_callback' => '__return_true',
+            )
+        );
     }
 
     /**
@@ -513,11 +524,36 @@ class LOF_Viewer2_REST {
             }
         }
 
-        // Turn on speaker via FPP
+        // Turn on speaker via FPP Run Script command
         $fpp_base = untrailingslashit( $config['fpp_host'] );
-        $script_url = $fpp_base . '/api/command/Run Script/' . urlencode( $config['on_script'] );
+        
+        // V2 Base format: POST /api/command with JSON payload
+        $command_url = $fpp_base . '/api/command';
+        $payload = array(
+            'command' => 'Run Script',
+            'args'    => array( $config['on_script'] ),
+        );
 
-        wp_remote_get( $script_url, array( 'timeout' => 5, 'blocking' => false ) );
+        error_log( '[LOF Speaker] Calling FPP: POST ' . $command_url . ' with payload: ' . wp_json_encode( $payload ) );
+
+        $script_response = wp_remote_post(
+            $command_url,
+            array(
+                'timeout' => 5,
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                ),
+                'body' => wp_json_encode( $payload ),
+            )
+        );
+        
+        if ( is_wp_error( $script_response ) ) {
+            error_log( '[LOF Speaker] FPP script failed: ' . $script_response->get_error_message() );
+        } else {
+            $code = wp_remote_retrieve_response_code( $script_response );
+            $body = wp_remote_retrieve_body( $script_response );
+            error_log( '[LOF Speaker] FPP script HTTP ' . $code . ': ' . $body );
+        }
 
         // Update state
         if ( ! $state['enabled'] ) {
@@ -614,6 +650,82 @@ class LOF_Viewer2_REST {
         );
 
         return $reasons[ $tier ] ?? 'Unknown';
+    }
+
+    /**
+     * POST /wp-json/lof-viewer/v1/speaker/notify
+     * Called by FPP scripts after they change GPIO state.
+     * Updates WP state to match physical reality.
+     */
+    public static function handle_speaker_notify( \WP_REST_Request $request ) {
+        $params = $request->get_json_params();
+        $status = isset( $params['status'] ) ? sanitize_text_field( $params['status'] ) : '';
+        $source = isset( $params['source'] ) ? sanitize_text_field( $params['source'] ) : 'fpp';
+
+        $state = get_option( 'lof_viewer_v2_speaker_state', array() );
+        $now = time();
+
+        error_log( '[LOF Speaker Notify] status=' . $status . ' source=' . $source );
+
+        if ( $status === 'on' ) {
+            // Script confirmed GPIO is ON
+            // If state wasn't already on, this is a physical button press
+            if ( empty( $state['enabled'] ) && $source === 'physical' ) {
+                // Physical button detected!
+                $config = get_option( 'lof_viewer_v2_speaker_config', array() );
+                $duration = isset( $config['duration_seconds'] ) ? (int) $config['duration_seconds'] : 300;
+
+                $state['status'] = 'on';
+                $state['enabled'] = true;
+                $state['mode'] = 'ACTIVE_TIMER';
+                $state['expires_at'] = $now + $duration;
+                $state['source'] = 'physical';
+                $state['session_started_at'] = $now;
+                $state['session_lifetime_started_at'] = $now;
+                $state['last_updated'] = $now;
+                $state['graceful_shutoff'] = false;
+
+                update_option( 'lof_viewer_v2_speaker_state', $state );
+
+                error_log( '[LOF Speaker Notify] Physical button press detected, enabled for ' . $duration . 's' );
+            } else {
+                // Just confirm it's on
+                $state['last_updated'] = $now;
+                update_option( 'lof_viewer_v2_speaker_state', $state );
+            }
+
+            return rest_ensure_response(
+                array(
+                    'success' => true,
+                    'message' => 'Speaker ON confirmed',
+                )
+            );
+        }
+
+        if ( $status === 'off' ) {
+            // Script confirmed GPIO is OFF
+            $state['status'] = 'off';
+            $state['enabled'] = false;
+            $state['expires_at'] = $now;
+            $state['last_updated'] = $now;
+            update_option( 'lof_viewer_v2_speaker_state', $state );
+
+            error_log( '[LOF Speaker Notify] Speaker OFF confirmed' );
+
+            return rest_ensure_response(
+                array(
+                    'success' => true,
+                    'message' => 'Speaker OFF confirmed',
+                )
+            );
+        }
+
+        return rest_ensure_response(
+            array(
+                'success' => false,
+                'message' => 'Invalid status',
+            )
+        );
     }
 
     /**
