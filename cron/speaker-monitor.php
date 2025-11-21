@@ -11,7 +11,7 @@
  */
 
 // Load WordPress
-$wp_load_path = dirname(dirname(dirname(dirname(__FILE__)))) . '/wp-load.php';
+$wp_load_path = '/var/www/wordpress/wp-load.php';
 
 if (!file_exists($wp_load_path)) {
     error_log('[LOF Speaker Monitor] Could not find wp-load.php');
