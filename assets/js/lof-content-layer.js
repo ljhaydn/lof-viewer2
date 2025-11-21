@@ -339,7 +339,7 @@
 
         // Proximity confirm button
         proximityConfirm: {
-          default: '✓ Yes, Im at the show',
+          default: '✓ Yes, I'm at the show',
           christmas: "✓ Yes, I'm at the North Pole!",
           halloween: "✓ Yes, I'm here in person!",
         },

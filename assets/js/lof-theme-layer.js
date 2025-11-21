@@ -123,8 +123,8 @@
         speakerState.config?.noiseCurfewEnabled &&
         currentHour >= (speakerState.config?.noiseCurfewHour || 22);
 
-      // Check FPP
-      const fppPlaying = speakerState.fppPlaying || false;
+      // Check FPP - use actual fppData, not speakerState
+      const fppPlaying = fppData && fppData.mode === 'playing';
 
       // Determine display mode
       if (!speakerState.enabled) {
@@ -149,11 +149,11 @@
       } else {
         // Speaker is ON
         if (speakerState.gracefulShutoff) {
-          // Protection mode
+          // Protection mode - use FPP time
           flags.displayMode = 'protection';
           flags.buttonEnabled = false;
           flags.showCountdown = true;
-          flags.countdownValue = speakerState.remainingSeconds || 0;
+          flags.countdownValue = fppData?.secondsRemaining || speakerState.remainingSeconds || 0;
           flags.emphasizeAlternatives = false;
         } else if (speakerState.remainingSeconds <= 30 && speakerState.remainingSeconds > 0) {
           // Extension window

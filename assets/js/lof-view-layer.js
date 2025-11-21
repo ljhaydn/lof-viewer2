@@ -200,10 +200,18 @@
       const helperEl = card.querySelector('[data-lof="speaker-helper"]');
       if (helperEl) helperEl.textContent = copy.helperText;
 
-      // Update alternatives
+      // Update alternatives (always visible, just emphasized differently)
       const alternativesEl = card.querySelector('[data-lof="speaker-alternatives"]');
       if (alternativesEl) {
-        alternativesEl.style.display = flags.emphasizeAlternatives ? '' : 'none';
+        // Always visible
+        alternativesEl.style.display = '';
+        
+        // Add emphasis class when needed
+        if (flags.emphasizeAlternatives) {
+          alternativesEl.classList.add('lof-alternatives--emphasized');
+        } else {
+          alternativesEl.classList.remove('lof-alternatives--emphasized');
+        }
 
         const titleEl = alternativesEl.querySelector('.lof-alternatives-title');
         if (titleEl) titleEl.textContent = copy.alternativesTitle;

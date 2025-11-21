@@ -154,6 +154,14 @@
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.lof-alternatives--emphasized {
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 1rem;
+  margin-top: 1rem;
+  border-radius: 0.5rem;
+}
+
 .lof-alternatives-title {
   font-size: 0.85rem;
   color: var(--lof-text-muted);
