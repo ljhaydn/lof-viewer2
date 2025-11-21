@@ -437,40 +437,34 @@
     getSpeakerCopy(flags) {
       const mode = flags.displayMode || 'off';
       const countdown = this._formatCountdown(flags.countdownValue || 0);
+      const theme = this._currentTheme;
 
-      const title = this.getMessage('speaker.title', this._currentTheme);
+      // Access nested speaker content
+      const speaker = this._content.speaker || {};
 
-      const statusText = this.getMessage(`speaker.${mode}.statusText`, this._currentTheme, {
-        countdown,
-      });
+      const title = (speaker.title && speaker.title[theme]) || speaker.title?.default || '🔊 Outdoor Speakers';
 
-      const buttonLabel = this.getMessage(`speaker.${mode}.buttonLabel`, this._currentTheme, {
-        countdown,
-      });
+      const modeContent = speaker[mode] || {};
+      const statusText = (modeContent.statusText && modeContent.statusText[theme]) || modeContent.statusText?.default || '';
+      const buttonLabel = (modeContent.buttonLabel && modeContent.buttonLabel[theme]) || modeContent.buttonLabel?.default || '';
+      let helperText = (modeContent.helperText && modeContent.helperText[theme]) || modeContent.helperText?.default || '';
 
-      const helperText = this.getMessage(`speaker.${mode}.helperText`, this._currentTheme, {
-        countdown,
-      });
+      // Replace countdown placeholder
+      helperText = helperText.replace(/\{countdown\}/g, countdown);
 
       let countdownLabel = '';
       if (flags.showCountdown) {
-        countdownLabel = this.getMessage(`speaker.${mode}.countdownLabel`, this._currentTheme, {
-          countdown,
-        });
+        countdownLabel = (modeContent.countdownLabel && modeContent.countdownLabel[theme]) || modeContent.countdownLabel?.default || countdown;
       }
 
-      const proximityConfirmLabel = this.getMessage(
-        'speaker.proximityConfirm',
-        this._currentTheme
-      );
+      const proximityConfirmLabel = (speaker.proximityConfirm && speaker.proximityConfirm[theme]) || speaker.proximityConfirm?.default || '✓ Yes, I\'m at the show';
 
-      const fmButtonLabel = this.getMessage('speaker.fmButton', this._currentTheme, {
-        frequency: flags.fmFrequency || '107.7',
-      });
+      let fmButtonLabel = (speaker.fmButton && speaker.fmButton[theme]) || speaker.fmButton?.default || '📻 FM {frequency}';
+      fmButtonLabel = fmButtonLabel.replace(/\{frequency\}/g, flags.fmFrequency || '107.7');
 
-      const streamButtonLabel = this.getMessage('speaker.streamButton', this._currentTheme);
+      const streamButtonLabel = (speaker.streamButton && speaker.streamButton[theme]) || speaker.streamButton?.default || '🌐 Audio Stream';
 
-      const alternativesTitle = this.getMessage('speaker.alternativesTitle', this._currentTheme);
+      const alternativesTitle = (speaker.alternativesTitle && speaker.alternativesTitle[theme]) || speaker.alternativesTitle?.default || 'Listen another way:';
 
       return {
         title,
