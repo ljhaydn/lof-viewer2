@@ -1,5 +1,4 @@
 // assets/js/lof-state-layer.js
-// FIX: Proper state detection - don't show "ACTIVE" when FPP is idle
 (function (window) {
   'use strict';
 
@@ -105,22 +104,15 @@
       };
     },
 
-    /**
-     * FIXED: Determine state from BOTH API success AND actual show status
-     * OLD BUG: Returned 'ACTIVE' whenever both APIs succeeded, even when idle
-     * NEW LOGIC: Check FPP playback state AND RF viewer control enabled
-     */
     determineStateFromData(rfResponse, fppResponse, consecutiveFailures) {
       const now = Date.now();
       const rfAge = now - (rfResponse?.timestamp || 0);
       const fppAge = now - (fppResponse?.timestamp || 0);
 
-      // OFFLINE - both APIs failed
       if (consecutiveFailures.rf >= 3 && consecutiveFailures.fpp >= 3) {
         return 'OFFLINE';
       }
 
-      // DEGRADED - one API failed or data is stale
       if (consecutiveFailures.rf >= 2 || consecutiveFailures.fpp >= 2) {
         return 'DEGRADED';
       }
@@ -129,35 +121,12 @@
         return 'DEGRADED';
       }
 
-      // ENDED - show is over
       if (rfResponse?.data?.showStatus === 'ended') {
         return 'ENDED';
       }
 
-      // NEW LOGIC: Check ACTUAL show state, not just API health
       if (rfResponse?.success && fppResponse?.success) {
-        const rfData = rfResponse.data;
-        const fppData = fppResponse.data;
-
-        // Check if show is actually active:
-        // 1. RF viewer control must be enabled
-        // 2. FPP must be playing (status_name === "playing") OR have recent activity
-        
-        const viewerControlEnabled = rfData?.viewerControlEnabled === true;
-        const fppIsPlaying = fppData?.status_name === 'playing';
-        const fppIsIdle = fppData?.status_name === 'idle';
-        
-        // Show is ACTIVE if:
-        // - Viewer control is enabled (show is "on")
-        // - FPP is either playing or idle-but-ready (not stopped)
-        if (viewerControlEnabled && (fppIsPlaying || fppIsIdle)) {
-          return 'ACTIVE';
-        }
-
-        // Show is IDLE if:
-        // - APIs work but viewer control is disabled (after hours)
-        // - OR FPP is completely stopped
-        return 'IDLE';
+        return 'ACTIVE';
       }
 
       return 'LOADING';
@@ -188,15 +157,8 @@
 
       const isShowActive = state.rfData?.showStatus === 'active';
       const isInDegradedMode = state.currentState === 'DEGRADED';
-
       const isDataFresh = now - state.lastRFUpdate < 30000;
-
-      // FIXED: Removed global cooldown check - cooldowns are now per-song in InteractionLayer
-      // This matches v1 behavior where users can request different songs with only per-song cooldowns
       const canMakeRequest = state.currentState === 'ACTIVE';
-
-      // FIXED: This is no longer used for blocking requests, kept for display purposes only
-      const cooldownRemaining = 0;
 
       return {
         shouldShowRequestButton,
@@ -208,7 +170,6 @@
         isDataFresh,
         isInDegradedMode,
         canMakeRequest,
-        cooldownRemaining,
         displayStatus: this._getDisplayStatus(state),
         primaryAction: shouldShowRequestButton ? 'REQUEST_SONG' : shouldShowSurpriseMe ? 'SURPRISE_ME' : null,
         dataAge: {
@@ -217,86 +178,6 @@
         },
         healthScore: this._computeHealthScore(state),
       };
-    },
-
-    getStateHistory() {
-      return [...this._history];
-    },
-
-    dumpState() {
-      return JSON.stringify(
-        {
-          state: this._state,
-          derived: this.getDerivedState(),
-          history: this._history.slice(-10),
-        },
-        null,
-        2,
-      );
-    },
-
-    // internal helpers
-    _notifySubscribers() {
-      const snapshot = this.getState();
-      this._subscribers.forEach((cb) => {
-        try {
-          cb(snapshot);
-        } catch (e) {
-          console.error('[StateLayer] subscriber error', e);
-        }
-      });
-    },
-
-    _getDisplayStatus(state) {
-      switch (state.currentState) {
-        case 'LOADING':
-          return 'Connecting to show...';
-        case 'ACTIVE':
-          return 'Show is live!';
-        case 'DEGRADED':
-          return 'Limited connectivity';
-        case 'OFFLINE':
-          return 'Unable to connect';
-        case 'ENDED':
-          return 'Show has ended';
-        case 'IDLE':
-          return 'Show is resting';
-        default:
-          return 'Unknown';
-      }
-    },
-
-    _computeHealthScore(state) {
-      let score = 100;
-
-      if (state.errors.rf) score -= 20;
-      if (state.errors.fpp) score -= 20;
-
-      const now = Date.now();
-      const rfAge = now - state.lastRFUpdate;
-      const fppAge = now - state.lastFPPUpdate;
-
-      if (rfAge > 30000) score -= 15;
-      if (rfAge > 60000) score -= 15;
-      if (fppAge > 60000) score -= 15;
-
-      score -= state.consecutiveFailures.rf * 5;
-      score -= state.consecutiveFailures.fpp * 5;
-
-      return Math.max(0, score);
-    },
-
-    _recordHistory(reason, fromState, toState) {
-      this._history.push({
-        timestamp: Date.now(),
-        reason,
-        transition: `${fromState} -> ${toState}`,
-      });
-      if (this._history.length > 50) this._history.shift();
-    },
-
-    _generateVisitorId() {
-      return `visitor_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     },
 
     // ========================================
@@ -427,6 +308,87 @@
       const now = Date.now();
       console.debug('[StateLayer] Speaker activity:', activityType, 'at', now);
       // Activity tracking logged for future use
+    },
+
+    getStateHistory() {
+      return [...this._history];
+    },
+
+    dumpState() {
+      return JSON.stringify(
+        {
+          state: this._state,
+          derived: this.getDerivedState(),
+          history: this._history.slice(-10),
+        },
+        null,
+        2
+      );
+    },
+
+    // ========================================
+    // INTERNAL HELPERS
+    // ========================================
+
+    _notifySubscribers() {
+      const snapshot = this.getState();
+      this._subscribers.forEach((cb) => {
+        try {
+          cb(snapshot);
+        } catch (e) {
+          console.error('[StateLayer] subscriber error', e);
+        }
+      });
+    },
+
+    _getDisplayStatus(state) {
+      switch (state.currentState) {
+        case 'LOADING':
+          return 'Connecting to show...';
+        case 'ACTIVE':
+          return 'Show is live!';
+        case 'DEGRADED':
+          return 'Limited connectivity';
+        case 'OFFLINE':
+          return 'Unable to connect';
+        case 'ENDED':
+          return 'Show has ended';
+        default:
+          return 'Unknown';
+      }
+    },
+
+    _computeHealthScore(state) {
+      let score = 100;
+
+      if (state.errors.rf) score -= 20;
+      if (state.errors.fpp) score -= 20;
+
+      const now = Date.now();
+      const rfAge = now - state.lastRFUpdate;
+      const fppAge = now - state.lastFPPUpdate;
+
+      if (rfAge > 30000) score -= 15;
+      if (rfAge > 60000) score -= 15;
+      if (fppAge > 60000) score -= 15;
+
+      score -= state.consecutiveFailures.rf * 5;
+      score -= state.consecutiveFailures.fpp * 5;
+
+      return Math.max(0, score);
+    },
+
+    _recordHistory(reason, fromState, toState) {
+      this._history.push({
+        timestamp: Date.now(),
+        reason,
+        transition: `${fromState} -> ${toState}`,
+      });
+      if (this._history.length > 50) this._history.shift();
+    },
+
+    _generateVisitorId() {
+      return `visitor_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     },
   };
 
